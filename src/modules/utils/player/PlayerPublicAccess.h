@@ -1,6 +1,9 @@
 #ifndef PLAYERPUBLICACCESS_H
 #define PLAYERPUBLICACCESS_H
 
+#include <cstdint>
+#include <string>
+
 #define player_checksum           CHECKSUM("player")
 #define is_playing_checksum       CHECKSUM("is_playing")
 #define is_suspended_checksum     CHECKSUM("is_suspended")
@@ -10,6 +13,28 @@
 #define restart_job_checksum    CHECKSUM("restart_job")
 #define suspend_play_checksum   CHECKSUM("suspend_play")
 #define resume_play_checksum    CHECKSUM("resume_play")
+
+#ifdef WAVEFORM_ATTESTATION
+#define bank_track_checksum CHECKSUM("bank_track")
+#define bank_execution_checksum CHECKSUM("bank_execution")
+enum bank_execution_phase : uint32_t {
+    BANK_UNBOUND, BANK_ARMED, BANK_RUNNING, BANK_PAUSED, BANK_EOF_REACHED,
+    BANK_EOF_SETTLED, BANK_ABORTED, BANK_INVALIDATED, BANK_IO_ERROR
+};
+struct bank_track_request {
+    uint8_t nonce[16];
+    uint8_t context[32];
+    bool accepted;
+};
+struct bank_execution_record {
+    uint8_t nonce[16];
+    uint8_t context[32];
+    uint8_t program_sha512[64];
+    uint8_t filename_sha512[64];
+    uint32_t size, cursor, parsed_lines, phase, generation, flags;
+};
+static_assert(sizeof(bank_execution_record) == 200, "Fixed execution record layout");
+#endif
 
 struct pad_progress {
     unsigned int percent_complete;

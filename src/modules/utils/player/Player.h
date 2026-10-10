@@ -10,6 +10,9 @@
 
 #include "Module.h"
 #include "OCodeHandler.h"
+#ifdef WAVEFORM_ATTESTATION
+#include "PlayerPublicAccess.h"
+#endif
 
 #include <stdio.h>
 #include <string>
@@ -39,6 +42,14 @@ class Player : public Module {
         void on_halt(void *argument);
 
     private:
+#ifdef WAVEFORM_ATTESTATION
+        bank_execution_record bank_execution = {};
+        bool bank_dispatching_line = false;
+        void bank_invalidate();
+        void bank_start();
+        void bank_observe();
+        void bank_end_read();
+#endif
         bool prepare_ocode_prescan(StreamOutput* stream, const char* fail_msg);
         void play_command( string parameters, StreamOutput* stream );
         void progress_command( string parameters, StreamOutput* stream );

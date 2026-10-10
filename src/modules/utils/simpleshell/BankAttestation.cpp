@@ -6,6 +6,14 @@ void SimpleShell::bank_attest_command(string, StreamOutput *stream)
 {
     stream->printf("ERROR: bank_attestation_disabled\n");
 }
+void SimpleShell::bank_track_command(string, StreamOutput *stream)
+{
+    stream->printf("ERROR: bank_execution_disabled\n");
+}
+void SimpleShell::bank_exec_command(string, StreamOutput *stream)
+{
+    stream->printf("ERROR: bank_execution_disabled\n");
+}
 #else
 #include "libs/monocypher/monocypher-ed25519.h"
 #include "libs/monocypher/monocypher.h"
@@ -146,6 +154,77 @@ void SimpleShell::bank_attest_command(string parameters, StreamOutput *stream)
     // The SD key and self-measured image do not establish protected boot trust.
     stream->printf("{\"schema_version\":\"waveform.carvera.firmware_attestation.v1\",\"message_hex\":\"");
     print_hex(stream, message, MESSAGE_SIZE);
+    stream->printf("\",\"signature_hex\":\""); print_hex(stream, signature, 64);
+    stream->printf("\"}\n"); crypto_wipe(signature, 64);
+}
+
+void SimpleShell::bank_track_command(string parameters, StreamOutput *stream)
+{
+    bank_track_request request = {};
+    if (parameters.size() != 97 || parameters[32] != ' ' ||
+        !hex(parameters.substr(0, 32), request.nonce) ||
+        !hex(parameters.substr(33, 64), request.context) ||
+        !THEKERNEL->factory_set || THEKERNEL->factory_set->MachineModel != CARVERA ||
+        !PublicData::set_value(player_checksum, bank_track_checksum, &request) || !request.accepted) {
+        stream->printf("ERROR: bank_execution_binding_unavailable\n"); return;
+    }
+    stream->printf("bank_execution_armed\n");
+}
+
+void SimpleShell::bank_exec_command(string parameters, StreamOutput *stream)
+{
+    const size_t EXECUTION_MESSAGE_SIZE = 388;
+    uint8_t message[EXECUTION_MESSAGE_SIZE] = {}, context[32];
+    if (parameters.size() != 97 || parameters[32] != ' ' || sequence == UINT32_MAX ||
+        !hex(parameters.substr(0, 32), message + 16) ||
+        !hex(parameters.substr(33, 64), context)) {
+        stream->printf("ERROR: bank_execution_request_invalid\n"); return;
+    }
+    void *data = nullptr;
+    if (!PublicData::get_value(player_checksum, bank_execution_checksum, &data) || !data) {
+        stream->printf("ERROR: bank_execution_unavailable\n"); return;
+    }
+    const bank_execution_record before = *static_cast<bank_execution_record *>(data);
+    if (before.phase < BANK_RUNNING || before.phase > BANK_IO_ERROR ||
+        memcmp(before.context, context, 32) != 0 ||
+        !THEKERNEL->factory_set || THEKERNEL->factory_set->MachineModel != CARVERA ||
+        THEKERNEL->is_config_load_error()) {
+        stream->printf("ERROR: bank_execution_unbound\n"); return;
+    }
+    static const char execution_magic[] = "CVEXEC0000000001";
+    static_assert(sizeof(execution_magic) - 1 == 16, "Fixed execution protocol marker");
+    memcpy(message, execution_magic, 16);
+    memcpy(message + 48, context, 32);
+    uint8_t seed[32] = {}, secret[64] = {}, public_key[32], signature[64];
+    FILE *file = fwfs::fopen("/sd/waveform-attestation.seed", "rb");
+    if (!file) { stream->printf("ERROR: bank_attestation_key_unavailable\n"); return; }
+    const bool complete = fwfs::fread(seed, 1, 32, file) == 32 && fwfs::fgetc(file) == EOF;
+    fwfs::fclose(file);
+    if (!complete) { crypto_wipe(seed, 32); stream->printf("ERROR: bank_attestation_key_unavailable\n"); return; }
+    crypto_ed25519_key_pair(secret, public_key, seed); crypto_wipe(seed, 32);
+    memcpy(message + 80, public_key, 32);
+    crypto_sha512(message + 112, reinterpret_cast<const uint8_t *>(WAVEFORM_ATTESTATION_IMAGE_START),
+                  WAVEFORM_ATTESTATION_IMAGE_SIZE);
+    uint8_t *out = message + 176;
+    word(out, WAVEFORM_ATTESTATION_IMAGE_START); word(out, WAVEFORM_ATTESTATION_IMAGE_SIZE);
+    word(out, ++sequence);
+    memcpy(out, before.nonce, 16); out += 16;
+    memcpy(out, before.context, 32); out += 32;
+    memcpy(out, before.program_sha512, 64); out += 64;
+    memcpy(out, before.filename_sha512, 64); out += 64;
+    word(out, before.size); word(out, before.cursor); word(out, before.parsed_lines);
+    word(out, before.phase); word(out, before.generation); word(out, before.flags);
+    crypto_ed25519_sign(signature, secret, message, EXECUTION_MESSAGE_SIZE);
+    crypto_wipe(secret, 64);
+    data = nullptr;
+    if (out != message + EXECUTION_MESSAGE_SIZE ||
+        !PublicData::get_value(player_checksum, bank_execution_checksum, &data) || !data ||
+        memcmp(&before, data, sizeof(before)) != 0) {
+        crypto_wipe(signature, 64); stream->printf("ERROR: bank_execution_state_changed\n"); return;
+    }
+    // This signature proves retained firmware bytes, not protected boot or machining accuracy.
+    stream->printf("{\"schema_version\":\"waveform.carvera.firmware_execution.v1\",\"message_hex\":\"");
+    print_hex(stream, message, EXECUTION_MESSAGE_SIZE);
     stream->printf("\",\"signature_hex\":\""); print_hex(stream, signature, 64);
     stream->printf("\"}\n"); crypto_wipe(signature, 64);
 }

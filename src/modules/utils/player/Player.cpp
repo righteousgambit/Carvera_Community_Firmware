@@ -7,6 +7,11 @@
 
 #include "Player.h"
 #include "libs/FirmwareFileSystem.h"
+#ifdef WAVEFORM_ATTESTATION
+#include "libs/monocypher/monocypher-ed25519.h"
+#include "libs/monocypher/monocypher.h"
+#include <cstring>
+#endif
 
 #include "libs/Kernel.h"
 #include "libs/CRC16.h"
@@ -143,6 +148,9 @@ void Player::on_module_loaded()
 
 void Player::on_halt(void* argument)
 {
+#ifdef WAVEFORM_ATTESTATION
+    if (argument == nullptr) bank_invalidate();
+#endif
     this->clear_buffered_queue();
 
     if(argument == nullptr && this->playing_file ) {
@@ -179,6 +187,9 @@ bool Player::prepare_ocode_prescan(StreamOutput* stream, const char* fail_msg)
 
 void Player::select_file(string argument, bool force_prescan)
 {
+#ifdef WAVEFORM_ATTESTATION
+    bank_invalidate();
+#endif
 
     this->filename = argument;
 
@@ -240,6 +251,9 @@ void Player::select_file(string argument, bool force_prescan)
 
 void Player::goto_line_number(unsigned long line_number)
 {
+#ifdef WAVEFORM_ATTESTATION
+    bank_invalidate();
+#endif
     this->goto_line = line_number;
     this->goto_line = this->goto_line < 1 ? 1 : this->goto_line;
     THEKERNEL->streams->printf("Goto line %lu...\r\n", this->goto_line);
@@ -300,6 +314,9 @@ void Player::end_of_file()
 void Player::play_opened_file()
 {
     if (this->current_file_handler != NULL) {
+#ifdef WAVEFORM_ATTESTATION
+        bank_start();
+#endif
         this->playing_file = true;
         // this would be a problem if the stream goes away before the file has finished,
         // so we attach it to the kernel stream, however network connections from pronterface
@@ -325,6 +342,12 @@ string Player::extract_options(string& args)
 void Player::on_gcode_received(void *argument)
 {
     Gcode *gcode = static_cast<Gcode *>(argument);
+#ifdef WAVEFORM_ATTESTATION
+    // Only the dedicated shell play path consumes an armed binding. External
+    // M-code starts and spindle/position restoration commands invalidate it.
+    if (!bank_dispatching_line && !(gcode->has_m && !gcode->has_g &&
+        (gcode->m == 105 || gcode->m == 114 || gcode->m == 115))) bank_invalidate();
+#endif
     string args = get_arguments(gcode->get_command());
     if (gcode->has_m) {
         // Track spindle state from the job stream so suspend/resume can work
@@ -530,6 +553,11 @@ void Player::on_console_line_received( void *argument )
     }
 
     string cmd = shift_parameter(possible_command);
+#ifdef WAVEFORM_ATTESTATION
+    if (!bank_dispatching_line && cmd != "bank_track" && cmd != "bank_exec" &&
+        cmd != "bank_attest" && cmd != "progress" && cmd != "play" &&
+        cmd != "suspend" && cmd != "resume" && cmd != "abort") bank_invalidate();
+#endif
 
 	// new_message.stream->printf("Play Received %s\r\n", possible_command.c_str());
 
@@ -570,6 +598,9 @@ void Player::buffer_command( string parameters, StreamOutput *stream )
 // Play a gcode file by considering each line as if it was received on the serial console
 void Player::play_command( string parameters, StreamOutput *stream )
 {
+#ifdef WAVEFORM_ATTESTATION
+    if (bank_execution.phase != BANK_ARMED) bank_invalidate();
+#endif
 //    // current tool number and tool offset
 //    struct tool_status tool;
 //    bool tool_ok = PublicData::get_value( atc_handler_checksum, get_tool_status_checksum, &tool );
@@ -629,6 +660,9 @@ void Player::play_command( string parameters, StreamOutput *stream )
 
     stream->printf("Playing %s\r\n", this->filename.c_str());
 
+#ifdef WAVEFORM_ATTESTATION
+    bank_start();
+#endif
     this->playing_file = true;
 
     // Output to the current stream if we were passed the -v ( verbose ) option
@@ -733,6 +767,12 @@ void Player::progress_command( string parameters, StreamOutput *stream )
 
 void Player::abort_command( string parameters, StreamOutput *stream )
 {
+#ifdef WAVEFORM_ATTESTATION
+    bank_observe();
+    if (bank_execution.phase >= BANK_ARMED && bank_execution.phase <= BANK_EOF_REACHED) {
+        bank_execution.phase = BANK_ABORTED; ++bank_execution.generation;
+    }
+#endif
 
     PublicData::set_value( atc_handler_checksum, abort_checksum, nullptr );
 
@@ -859,6 +899,9 @@ void Player::clear_macro_file_queue(){
 
 void Player::on_main_loop(void *argument)
 {
+#ifdef WAVEFORM_ATTESTATION
+    bank_observe();
+#endif
     if( !this->booted ) {
         this->booted = true;
         if (this->home_on_boot) {
@@ -1039,7 +1082,14 @@ void Player::on_main_loop(void *argument)
 
                 // waits for the queue to have enough room
                 // this->current_stream->printf("Run: %s", buf);
+#ifdef WAVEFORM_ATTESTATION
+                bank_dispatching_line = true;
+#endif
                 THEKERNEL->call_event(ON_CONSOLE_LINE_RECEIVED, &message);
+#ifdef WAVEFORM_ATTESTATION
+                bank_dispatching_line = false;
+                bank_observe();
+#endif
                 // fputs(buf, this->temp_file_handler);
                 // THEKERNEL->streams->printf("0-[Line: %d] %s\n", message.line, buf);
                 this->sync_progress_max();
@@ -1051,6 +1101,9 @@ void Player::on_main_loop(void *argument)
                 return; // we feed one line per main loop
 
             } else {
+#ifdef WAVEFORM_ATTESTATION
+                bank_invalidate();
+#endif
                 // discard long line
                 if (!discard && this->current_stream != nullptr) {
                     this->current_stream->printf("Warning: Discarded long line\n");
@@ -1065,6 +1118,9 @@ void Player::on_main_loop(void *argument)
             }
         }
 
+#ifdef WAVEFORM_ATTESTATION
+        bank_end_read();
+#endif
         // save last progress so status (?) continues to show |P:played_lines,percent_complete,elapsed_secs|
         this->last_played_lines = this->played_lines;
         this->last_percent_complete = (file_size > 0) ? (unsigned int)roundf((played_cnt * 100.0F) / file_size) : 100;
@@ -1133,6 +1189,12 @@ void Player::on_get_public_data(void *argument)
 
     if(!pdr->starts_with(player_checksum)) return;
 
+#ifdef WAVEFORM_ATTESTATION
+    if (pdr->second_element_is(bank_execution_checksum)) {
+        bank_observe();
+        pdr->set_data_ptr(&bank_execution); pdr->set_taken(); return;
+    }
+#endif
     if(pdr->second_element_is(is_playing_checksum) || pdr->second_element_is(is_suspended_checksum)) {
         static bool bool_data;
         bool_data = pdr->second_element_is(is_playing_checksum) ? this->playing_file : THEKERNEL->is_suspending();
@@ -1198,6 +1260,23 @@ void Player::on_set_public_data(void *argument)
 
     if(!pdr->starts_with(player_checksum)) return;
 
+#ifdef WAVEFORM_ATTESTATION
+    if (pdr->second_element_is(bank_track_checksum)) {
+        auto *request = static_cast<bank_track_request *>(pdr->get_data_ptr());
+        if (request != nullptr) {
+            request->accepted = false;
+            if (bank_execution.phase == BANK_UNBOUND && !playing_file && current_file_handler == nullptr &&
+                !THEKERNEL->is_halted() && !THEKERNEL->is_suspending() && !THEKERNEL->is_waiting() &&
+                THECONVEYOR->is_idle() && THECONVEYOR->is_queue_empty()) {
+                memcpy(bank_execution.nonce, request->nonce, 16);
+                memcpy(bank_execution.context, request->context, 32);
+                bank_execution.phase = BANK_ARMED; ++bank_execution.generation;
+                request->accepted = true;
+            }
+        }
+        pdr->set_taken(); return;
+    }
+#endif
     if(pdr->second_element_is(abort_play_checksum)) {
         abort_command("", &(StreamOutput::NullStream));
         pdr->set_taken();
@@ -2481,3 +2560,87 @@ void Player::SendMessage(char cmd, char* s, int size , StreamOutput *stream)
 	xbuff[total_length+8] = FOOTER&0xFF;
 	stream->puts((char *)xbuff, len+6);
 }
+
+#ifdef WAVEFORM_ATTESTATION
+void Player::bank_invalidate()
+{
+    if (bank_execution.phase != BANK_UNBOUND && bank_execution.phase != BANK_INVALIDATED) {
+        bank_execution.phase = BANK_INVALIDATED;
+        if (bank_execution.generation != UINT32_MAX) ++bank_execution.generation;
+    }
+}
+
+void Player::bank_start()
+{
+    if (bank_execution.phase != BANK_ARMED) { bank_invalidate(); return; }
+    FILE *file = current_file_handler;
+    // A bounded idle-only measurement never attributes unopened or injected bytes.
+    if (!file || fwfs::ftell(file) != 0 || THEKERNEL->is_halted() ||
+        THEKERNEL->is_suspending() || !THECONVEYOR->is_idle() ||
+        !THECONVEYOR->is_queue_empty() || !buffered_queue.empty() || !macro_file_queue.empty()) {
+        bank_invalidate(); return;
+    }
+    crypto_sha512_ctx hash;
+    crypto_sha512_init(&hash);
+    uint8_t buffer[256]; size_t total = 0, count;
+    bool valid = true;
+    while ((count = fwfs::fread(buffer, 1, sizeof(buffer), file)) != 0) {
+        total += count;
+        if (total > 128UL * 1024UL || memchr(buffer, 0, count) != nullptr) { valid = false; break; }
+        crypto_sha512_update(&hash, buffer, count);
+    }
+    valid = valid && total > 0 && fwfs::feof(file) && !::ferror(file);
+    if (fwfs::fseek(file, 0, SEEK_SET) != 0) valid = false;
+    if (!valid) { crypto_wipe(&hash, sizeof(hash)); bank_invalidate(); return; }
+    crypto_sha512_final(&hash, bank_execution.program_sha512);
+    crypto_sha512(bank_execution.filename_sha512,
+                  reinterpret_cast<const uint8_t *>(filename.data()), filename.size());
+    bank_execution.size = total;
+    bank_execution.cursor = 0; bank_execution.parsed_lines = 0;
+    bank_execution.phase = BANK_RUNNING; ++bank_execution.generation;
+}
+
+void Player::bank_observe()
+{
+    if (bank_execution.phase == BANK_UNBOUND || bank_execution.phase == BANK_ARMED) return;
+    bank_execution_record before = bank_execution;
+    bank_state atc = {};
+    bool atc_known = PublicData::get_value(atc_handler_checksum, get_bank_state_checksum, &atc);
+    const bool idle = THECONVEYOR->is_idle(), empty = THECONVEYOR->is_queue_empty();
+    bank_execution.flags = (playing_file ? 1U : 0U) | (THEKERNEL->is_suspending() ? 2U : 0U) |
+        (THEKERNEL->is_halted() ? 4U : 0U) | (idle ? 8U : 0U) | (empty ? 16U : 0U) |
+        (atc_known && atc.status == 0 ? 32U : 0U) |
+        (atc_known && atc.queued_scripts == 0 ? 64U : 0U) | (inner_playing ? 128U : 0U);
+    if (bank_execution.phase == BANK_RUNNING || bank_execution.phase == BANK_PAUSED) {
+        if (!current_file_handler || filename.empty() || THEKERNEL->is_halted()) bank_invalidate();
+        else {
+            long cursor = fwfs::ftell(current_file_handler);
+            if (cursor < 0 || static_cast<unsigned long>(cursor) > bank_execution.size) bank_invalidate();
+            else {
+                bank_execution.cursor = cursor; bank_execution.parsed_lines = file_line;
+                bank_execution.phase = THEKERNEL->is_suspending() ? BANK_PAUSED : BANK_RUNNING;
+            }
+        }
+    } else if (bank_execution.phase == BANK_EOF_REACHED && !playing_file && !inner_playing &&
+               !THEKERNEL->is_halted() && !THEKERNEL->is_suspending() && !THEKERNEL->is_waiting() &&
+               idle && empty && atc_known && atc.status == 0 && atc.queued_scripts == 0 &&
+               buffered_queue.empty() && macro_file_queue.empty()) {
+        bank_execution.phase = BANK_EOF_SETTLED;
+    }
+    if (memcmp(&before, &bank_execution, sizeof(before)) != 0) {
+        if (bank_execution.generation == UINT32_MAX) bank_execution.phase = BANK_INVALIDATED;
+        else ++bank_execution.generation;
+    }
+}
+
+void Player::bank_end_read()
+{
+    bank_observe();
+    if (bank_execution.phase != BANK_RUNNING && bank_execution.phase != BANK_PAUSED) return;
+    bank_execution.phase = current_file_handler && fwfs::feof(current_file_handler) &&
+        !::ferror(current_file_handler) && bank_execution.cursor == bank_execution.size
+        ? BANK_EOF_REACHED : BANK_IO_ERROR;
+    if (bank_execution.generation == UINT32_MAX) bank_execution.phase = BANK_INVALIDATED;
+    else ++bank_execution.generation;
+}
+#endif
