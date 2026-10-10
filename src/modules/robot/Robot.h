@@ -56,6 +56,7 @@ class Robot : public Module {
         void  pop_state();
 #ifdef WAVEFORM_ATTESTATION
         bool bank_resume_state(uint8_t out[144]) const;
+        bool bank_installed_state(uint8_t out[40]) const;
 #endif
         void check_max_actuator_speeds();
         float to_millimeters( float value ) const { return this->inch_mode ? value * 25.4F : value; }

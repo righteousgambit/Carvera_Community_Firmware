@@ -12,6 +12,9 @@ class BaseSolution {
         BaseSolution(){};
         BaseSolution(Config*){};
         virtual ~BaseSolution() {};
+#ifdef WAVEFORM_ATTESTATION
+        virtual unsigned bank_solution_identity() const { return 0; } // unknown by default
+#endif
         virtual void cartesian_to_actuator(const float[], ActuatorCoordinates &) const = 0;
         virtual void actuator_to_cartesian(const ActuatorCoordinates &, float[]) const = 0;
         typedef std::map<char, float> arm_options_t;

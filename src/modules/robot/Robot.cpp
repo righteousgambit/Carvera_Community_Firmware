@@ -41,6 +41,9 @@
 #include "mri.h"
 
 #include <fastmath.h>
+#ifdef WAVEFORM_ATTESTATION
+#include <cmath>
+#endif
 #include <string>
 #include <algorithm>
 
@@ -425,6 +428,29 @@ void Robot::pop_state()
 }
 
 #ifdef WAVEFORM_ATTESTATION
+bool Robot::bank_installed_state(uint8_t out[40]) const
+{
+    if (!arm_solution || n_motors != 3) return false;
+    uint8_t *cursor = out;
+    auto word = [&cursor](uint32_t value) {
+        for (unsigned i = 0; i < 4; ++i) { *cursor++ = value & 255; value >>= 8; }
+    };
+    auto real = [&word](float value) { uint32_t bits; memcpy(&bits, &value, 4); word(bits); };
+    word(1); word(arm_solution->bank_solution_identity()); word(n_motors);
+    word((disable_arm_solution ? 1U : 0U) | (tool_not_calibrated ? 2U : 0U));
+    for (unsigned i = 0; i < 3; ++i) {
+        const float value = actuators[i]->get_current_position();
+        if (!std::isfinite(value)) return false;
+        real(value);
+    }
+    for (unsigned i = 0; i < 3; ++i) {
+        const float value = actuators[i]->get_steps_per_mm();
+        if (!std::isfinite(value) || value <= 0) return false;
+        real(value);
+    }
+    return cursor == out + 40;
+}
+
 bool Robot::bank_resume_state(uint8_t out[144]) const
 {
     if (state_stack.empty() || state_stack.size() > UINT32_MAX || current_wcs >= MAX_WCS ||
