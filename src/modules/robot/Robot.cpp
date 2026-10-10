@@ -424,6 +424,43 @@ void Robot::pop_state()
     }
 }
 
+#ifdef WAVEFORM_ATTESTATION
+bool Robot::bank_resume_state(uint8_t out[144]) const
+{
+    if (state_stack.empty() || state_stack.size() > UINT32_MAX || current_wcs >= MAX_WCS ||
+        std::get<7>(state_stack.top()) >= MAX_WCS || n_motors < 3 || !arm_solution) return false;
+    static_assert(sizeof(float) == 4, "Fixed binary32 Robot state");
+    memset(out, 0, 144);
+    uint8_t *cursor = out;
+    auto word = [&cursor](uint32_t value) {
+        for (unsigned i = 0; i < 4; ++i) { *cursor++ = value & 255; value >>= 8; }
+    };
+    const auto &saved = state_stack.top();
+    const uint32_t flags = (absolute_mode ? 1U : 0U) | (e_absolute_mode ? 2U : 0U) |
+        (inch_mode ? 4U : 0U) | (is_g123 ? 8U : 0U) | (inverse_time_mode ? 16U : 0U) |
+        (next_command_is_MCS ? 32U : 0U) | (compensationTransform ? 64U : 0U) |
+        (disable_arm_solution ? 128U : 0U) | (tool_not_calibrated ? 256U : 0U) |
+        (soft_endstop_enabled ? 512U : 0U) | (soft_endstop_halt ? 1024U : 0U);
+    const uint32_t saved_flags = (std::get<2>(saved) ? 1U : 0U) | (std::get<3>(saved) ? 2U : 0U) |
+        (std::get<4>(saved) ? 4U : 0U) | (std::get<5>(saved) ? 8U : 0U) | (std::get<6>(saved) ? 16U : 0U);
+    word(1); word(state_stack.size()); word(flags); word(saved_flags);
+    word(current_wcs); word(std::get<7>(saved)); word(n_motors); word(current_motion_mode);
+    auto real = [&word](float value) { uint32_t bits; memcpy(&bits, &value, 4); word(bits); };
+    real(feed_rate); real(seek_rate); real(std::get<0>(saved)); real(std::get<1>(saved));
+    float actual[3]; get_current_machine_position(actual);
+    for (unsigned i = 0; i < 3; ++i) real(machine_position[i]);
+    for (unsigned i = 0; i < 3; ++i) real(actual[i]);
+    for (const auto &offset : {wcs_offsets[current_wcs], g92_offset, tool_offset}) {
+        real(std::get<0>(offset)); real(std::get<1>(offset)); real(std::get<2>(offset));
+    }
+    real(cos_r[current_wcs]); real(sin_r[current_wcs]);
+    for (unsigned i = 0; i < 3; ++i) real(soft_endstop_min[i]);
+    for (unsigned i = 0; i < 3; ++i) real(soft_endstop_max[i]);
+    real(seconds_per_minute);
+    return true;
+}
+#endif
+
 std::vector<Robot::wcs_t> Robot::get_wcs_state() const
 {
     std::vector<wcs_t> v;

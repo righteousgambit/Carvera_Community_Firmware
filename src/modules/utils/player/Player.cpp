@@ -555,7 +555,7 @@ void Player::on_console_line_received( void *argument )
 
     string cmd = shift_parameter(possible_command);
 #ifdef WAVEFORM_ATTESTATION
-    if (!bank_dispatching_line && cmd != "bank_track" && cmd != "bank_exec" && cmd != "bank_exec2" && cmd != "bank_exec3" &&
+    if (!bank_dispatching_line && cmd != "bank_track" && cmd != "bank_exec" && cmd != "bank_exec2" && cmd != "bank_exec3" && cmd != "bank_exec4" &&
         cmd != "bank_attest" && cmd != "progress" && cmd != "play" &&
         cmd != "suspend" && cmd != "resume" && cmd != "abort") bank_invalidate();
 #endif
@@ -1197,6 +1197,20 @@ void Player::on_get_public_data(void *argument)
     if(!pdr->starts_with(player_checksum)) return;
 
 #ifdef WAVEFORM_ATTESTATION
+    if (pdr->second_element_is(bank_resume_plan_checksum)) {
+        void *snapshot = nullptr;
+        if (!PublicData::get_value(player_checksum, bank_resume_snapshot_checksum, &snapshot) || !snapshot ||
+            !bank_saved_robot_valid) return;
+        memset(bank_resume_plan, 0, sizeof(bank_resume_plan));
+        memcpy(bank_resume_plan, snapshot, 96);
+        memcpy(bank_resume_plan + 96, bank_saved_robot, 144);
+        if (!THEROBOT->bank_resume_state(bank_resume_plan + 240)) return;
+        char *command = reinterpret_cast<char *>(bank_resume_plan + 384);
+        const int size = snprintf(command, 128, "G1 X%.3f Y%.3f Z%.3f F%.3f", saved_position[0], saved_position[1],
+            saved_position[2], THEROBOT->from_millimeters(1000));
+        if (size <= 0 || size >= 128) return;
+        pdr->set_data_ptr(bank_resume_plan); pdr->set_taken(); return;
+    }
     if (pdr->second_element_is(bank_resume_snapshot_checksum)) {
         bank_observe();
         if (bank_execution.phase != BANK_PAUSED || bank_execution.flags != 123 || THEKERNEL->is_waiting() ||
@@ -1453,6 +1467,9 @@ void Player::suspend_command(string parameters, StreamOutput *stream, bool pause
     // save current state
     THEROBOT->push_state();
     current_motion_mode = THEROBOT->get_current_motion_mode();
+#ifdef WAVEFORM_ATTESTATION
+    bank_saved_robot_valid = bank_execution.phase == BANK_RUNNING && THEROBOT->bank_resume_state(bank_saved_robot);
+#endif
 
     this->save_and_stop_spindle_on_suspend();
 
@@ -2593,6 +2610,7 @@ void Player::SendMessage(char cmd, char* s, int size , StreamOutput *stream)
 #ifdef WAVEFORM_ATTESTATION
 void Player::bank_invalidate()
 {
+    bank_saved_robot_valid = false;
     if (bank_execution.phase != BANK_UNBOUND && bank_execution.phase != BANK_INVALIDATED) {
         bank_execution.phase = BANK_INVALIDATED;
         bank_consumed_active = false;

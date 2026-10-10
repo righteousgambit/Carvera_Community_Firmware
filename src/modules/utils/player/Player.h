@@ -46,6 +46,9 @@ class Player : public Module {
 #ifdef WAVEFORM_ATTESTATION
         bank_execution_record bank_execution = {};
         uint8_t bank_resume_snapshot[96] = {};
+        uint8_t bank_saved_robot[144] = {};
+        uint8_t bank_resume_plan[512] = {};
+        bool bank_saved_robot_valid = false;
         bool bank_dispatching_line = false;
         crypto_sha512_ctx bank_consumed_hash = {};
         bool bank_consumed_active = false;

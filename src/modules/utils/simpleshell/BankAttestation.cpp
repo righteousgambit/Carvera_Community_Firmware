@@ -10,6 +10,10 @@ void SimpleShell::bank_track_command(string, StreamOutput *stream)
 {
     stream->printf("ERROR: bank_execution_disabled\n");
 }
+void SimpleShell::bank_exec4_command(string, StreamOutput *stream)
+{
+    stream->printf("ERROR: bank_execution_disabled\n");
+}
 void SimpleShell::bank_exec3_command(string, StreamOutput *stream)
 {
     stream->printf("ERROR: bank_execution_disabled\n");
@@ -182,8 +186,8 @@ void SimpleShell::bank_track_command(string parameters, StreamOutput *stream)
 static void bank_exec_read(string parameters, StreamOutput *stream, unsigned version)
 {
     const bool consumed = version >= 2;
-    const size_t EXECUTION_MESSAGE_SIZE = version == 3 ? 556 : consumed ? 460 : 388;
-    uint8_t message[556] = {}, context[32], restore[96] = {};
+    const size_t EXECUTION_MESSAGE_SIZE = version == 4 ? 972 : version == 3 ? 556 : consumed ? 460 : 388;
+    uint8_t message[972] = {}, context[32], restore[512] = {};
     if (parameters.size() != 97 || parameters[32] != ' ' || sequence == UINT32_MAX ||
         !hex(parameters.substr(0, 32), message + 16) ||
         !hex(parameters.substr(33, 64), context)) {
@@ -200,14 +204,14 @@ static void bank_exec_read(string parameters, StreamOutput *stream, unsigned ver
         THEKERNEL->is_config_load_error()) {
         stream->printf("ERROR: bank_execution_unbound\n"); return;
     }
-    if (version == 3) {
+    if (version >= 3) {
         data = nullptr;
-        if (!PublicData::get_value(player_checksum, bank_resume_snapshot_checksum, &data) || !data || before.phase != BANK_PAUSED) {
+        if (!PublicData::get_value(player_checksum, version == 4 ? bank_resume_plan_checksum : bank_resume_snapshot_checksum, &data) || !data || before.phase != BANK_PAUSED) {
             stream->printf("ERROR: bank_resume_snapshot_unavailable\n"); return;
         }
-        memcpy(restore, data, 96);
+        memcpy(restore, data, version == 4 ? 512 : 96);
     }
-    const char *execution_magic = version == 3 ? "CVEXEC0000000003" : consumed ? "CVEXEC0000000002" : "CVEXEC0000000001";
+    const char *execution_magic = version == 4 ? "CVEXEC0000000004" : version == 3 ? "CVEXEC0000000003" : consumed ? "CVEXEC0000000002" : "CVEXEC0000000001";
     memcpy(message, execution_magic, 16);
     memcpy(message + 48, context, 32);
     uint8_t seed[32] = {}, secret[64] = {}, public_key[32], signature[64];
@@ -233,7 +237,7 @@ static void bank_exec_read(string parameters, StreamOutput *stream, unsigned ver
         memcpy(out, before.consumed_sha512, 64); out += 64;
         word(out, before.consumed_size); word(out, before.consumed_verified);
     }
-    if (version == 3) { memcpy(out, restore, 96); out += 96; }
+    if (version >= 3) { const size_t length = version == 4 ? 512 : 96; memcpy(out, restore, length); out += length; }
     crypto_ed25519_sign(signature, secret, message, EXECUTION_MESSAGE_SIZE);
     crypto_wipe(secret, 64);
     data = nullptr;
@@ -242,9 +246,9 @@ static void bank_exec_read(string parameters, StreamOutput *stream, unsigned ver
         memcmp(&before, data, sizeof(before)) != 0) {
         crypto_wipe(signature, 64); stream->printf("ERROR: bank_execution_state_changed\n"); return;
     }
-    if (version == 3) {
+    if (version >= 3) {
         data = nullptr;
-        if (!PublicData::get_value(player_checksum, bank_resume_snapshot_checksum, &data) || !data || memcmp(restore, data, 96) != 0) {
+        if (!PublicData::get_value(player_checksum, version == 4 ? bank_resume_plan_checksum : bank_resume_snapshot_checksum, &data) || !data || memcmp(restore, data, version == 4 ? 512 : 96) != 0) {
             crypto_wipe(signature, 64); stream->printf("ERROR: bank_resume_snapshot_changed\n"); return;
         }
         data = nullptr;
@@ -253,7 +257,7 @@ static void bank_exec_read(string parameters, StreamOutput *stream, unsigned ver
         }
     }
     // This signature proves retained firmware bytes, not protected boot or machining accuracy.
-    stream->printf("{\"schema_version\":\"waveform.carvera.firmware_execution.%s\",\"message_hex\":\"", version == 3 ? "v3" : consumed ? "v2" : "v1");
+    stream->printf("{\"schema_version\":\"waveform.carvera.firmware_execution.%s\",\"message_hex\":\"", version == 4 ? "v4" : version == 3 ? "v3" : consumed ? "v2" : "v1");
     print_hex(stream, message, EXECUTION_MESSAGE_SIZE);
     stream->printf("\",\"signature_hex\":\""); print_hex(stream, signature, 64);
     stream->printf("\"}\n"); crypto_wipe(signature, 64);
@@ -261,4 +265,5 @@ static void bank_exec_read(string parameters, StreamOutput *stream, unsigned ver
 void SimpleShell::bank_exec_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, 1); }
 void SimpleShell::bank_exec2_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, 2); }
 void SimpleShell::bank_exec3_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, 3); }
+void SimpleShell::bank_exec4_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, 4); }
 #endif

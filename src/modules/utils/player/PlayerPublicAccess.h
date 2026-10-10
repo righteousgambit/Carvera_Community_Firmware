@@ -16,6 +16,7 @@
 
 #ifdef WAVEFORM_ATTESTATION
 #define bank_track_checksum CHECKSUM("bank_track")
+#define bank_resume_plan_checksum CHECKSUM("bank_resume_plan")
 #define bank_resume_snapshot_checksum CHECKSUM("bank_resume_snapshot")
 #define bank_execution_checksum CHECKSUM("bank_execution")
 enum bank_execution_phase : uint32_t {
