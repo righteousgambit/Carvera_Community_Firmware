@@ -12,6 +12,7 @@
 #include "OCodeHandler.h"
 #ifdef WAVEFORM_ATTESTATION
 #include "PlayerPublicAccess.h"
+#include "libs/monocypher/monocypher-ed25519.h"
 #endif
 
 #include <stdio.h>
@@ -45,6 +46,9 @@ class Player : public Module {
 #ifdef WAVEFORM_ATTESTATION
         bank_execution_record bank_execution = {};
         bool bank_dispatching_line = false;
+        crypto_sha512_ctx bank_consumed_hash = {};
+        bool bank_consumed_active = false;
+        void bank_consume(const char *bytes, size_t length);
         void bank_invalidate();
         void bank_start();
         void bank_observe();

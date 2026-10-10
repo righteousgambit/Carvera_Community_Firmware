@@ -32,8 +32,10 @@ struct bank_execution_record {
     uint8_t program_sha512[64];
     uint8_t filename_sha512[64];
     uint32_t size, cursor, parsed_lines, phase, generation, flags;
+    uint8_t consumed_sha512[64];
+    uint32_t consumed_size, consumed_verified;
 };
-static_assert(sizeof(bank_execution_record) == 200, "Fixed execution record layout");
+static_assert(sizeof(bank_execution_record) == 272, "Fixed execution record layout");
 #endif
 
 struct pad_progress {

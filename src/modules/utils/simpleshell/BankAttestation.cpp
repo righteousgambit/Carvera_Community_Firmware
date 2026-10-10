@@ -10,6 +10,10 @@ void SimpleShell::bank_track_command(string, StreamOutput *stream)
 {
     stream->printf("ERROR: bank_execution_disabled\n");
 }
+void SimpleShell::bank_exec2_command(string, StreamOutput *stream)
+{
+    stream->printf("ERROR: bank_execution_disabled\n");
+}
 void SimpleShell::bank_exec_command(string, StreamOutput *stream)
 {
     stream->printf("ERROR: bank_execution_disabled\n");
@@ -171,10 +175,10 @@ void SimpleShell::bank_track_command(string parameters, StreamOutput *stream)
     stream->printf("bank_execution_armed\n");
 }
 
-void SimpleShell::bank_exec_command(string parameters, StreamOutput *stream)
+static void bank_exec_read(string parameters, StreamOutput *stream, bool consumed)
 {
-    const size_t EXECUTION_MESSAGE_SIZE = 388;
-    uint8_t message[EXECUTION_MESSAGE_SIZE] = {}, context[32];
+    const size_t EXECUTION_MESSAGE_SIZE = consumed ? 460 : 388;
+    uint8_t message[460] = {}, context[32];
     if (parameters.size() != 97 || parameters[32] != ' ' || sequence == UINT32_MAX ||
         !hex(parameters.substr(0, 32), message + 16) ||
         !hex(parameters.substr(33, 64), context)) {
@@ -191,8 +195,7 @@ void SimpleShell::bank_exec_command(string parameters, StreamOutput *stream)
         THEKERNEL->is_config_load_error()) {
         stream->printf("ERROR: bank_execution_unbound\n"); return;
     }
-    static const char execution_magic[] = "CVEXEC0000000001";
-    static_assert(sizeof(execution_magic) - 1 == 16, "Fixed execution protocol marker");
+    const char *execution_magic = consumed ? "CVEXEC0000000002" : "CVEXEC0000000001";
     memcpy(message, execution_magic, 16);
     memcpy(message + 48, context, 32);
     uint8_t seed[32] = {}, secret[64] = {}, public_key[32], signature[64];
@@ -214,6 +217,10 @@ void SimpleShell::bank_exec_command(string parameters, StreamOutput *stream)
     memcpy(out, before.filename_sha512, 64); out += 64;
     word(out, before.size); word(out, before.cursor); word(out, before.parsed_lines);
     word(out, before.phase); word(out, before.generation); word(out, before.flags);
+    if (consumed) {
+        memcpy(out, before.consumed_sha512, 64); out += 64;
+        word(out, before.consumed_size); word(out, before.consumed_verified);
+    }
     crypto_ed25519_sign(signature, secret, message, EXECUTION_MESSAGE_SIZE);
     crypto_wipe(secret, 64);
     data = nullptr;
@@ -223,9 +230,11 @@ void SimpleShell::bank_exec_command(string parameters, StreamOutput *stream)
         crypto_wipe(signature, 64); stream->printf("ERROR: bank_execution_state_changed\n"); return;
     }
     // This signature proves retained firmware bytes, not protected boot or machining accuracy.
-    stream->printf("{\"schema_version\":\"waveform.carvera.firmware_execution.v1\",\"message_hex\":\"");
+    stream->printf("{\"schema_version\":\"waveform.carvera.firmware_execution.%s\",\"message_hex\":\"", consumed ? "v2" : "v1");
     print_hex(stream, message, EXECUTION_MESSAGE_SIZE);
     stream->printf("\",\"signature_hex\":\""); print_hex(stream, signature, 64);
     stream->printf("\"}\n"); crypto_wipe(signature, 64);
 }
+void SimpleShell::bank_exec_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, false); }
+void SimpleShell::bank_exec2_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, true); }
 #endif

@@ -110,6 +110,7 @@ const SimpleShell::ptentry_t SimpleShell::commands_table[] = {
     {"version",  SimpleShell::version_command},
     {"bank_attest", SimpleShell::bank_attest_command},
     {"bank_track", SimpleShell::bank_track_command},
+    {"bank_exec2", SimpleShell::bank_exec2_command},
     {"bank_exec", SimpleShell::bank_exec_command},
     {"mem",      SimpleShell::mem_command},
     {"get",      SimpleShell::get_command},

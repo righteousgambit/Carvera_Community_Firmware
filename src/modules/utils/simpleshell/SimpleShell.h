@@ -29,6 +29,7 @@ public:
     static void print_mem(StreamOutput *stream) { mem_command("", stream); }
     static void bank_attest_command(string parameters, StreamOutput *stream);
     static void bank_track_command(string parameters, StreamOutput *stream);
+    static void bank_exec2_command(string parameters, StreamOutput *stream);
     static void bank_exec_command(string parameters, StreamOutput *stream);
     static void version_command(string parameters, StreamOutput *stream );
     static void ftype_command( string parameters, StreamOutput *stream );

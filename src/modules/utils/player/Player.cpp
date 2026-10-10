@@ -554,7 +554,7 @@ void Player::on_console_line_received( void *argument )
 
     string cmd = shift_parameter(possible_command);
 #ifdef WAVEFORM_ATTESTATION
-    if (!bank_dispatching_line && cmd != "bank_track" && cmd != "bank_exec" &&
+    if (!bank_dispatching_line && cmd != "bank_track" && cmd != "bank_exec" && cmd != "bank_exec2" &&
         cmd != "bank_attest" && cmd != "progress" && cmd != "play" &&
         cmd != "suspend" && cmd != "resume" && cmd != "abort") bank_invalidate();
 #endif
@@ -770,7 +770,10 @@ void Player::abort_command( string parameters, StreamOutput *stream )
 #ifdef WAVEFORM_ATTESTATION
     bank_observe();
     if (bank_execution.phase >= BANK_ARMED && bank_execution.phase <= BANK_EOF_REACHED) {
-        bank_execution.phase = BANK_ABORTED; ++bank_execution.generation;
+        bank_execution.phase = bank_execution.generation == UINT32_MAX ? BANK_INVALIDATED : BANK_ABORTED;
+        if (bank_execution.generation != UINT32_MAX) ++bank_execution.generation;
+        bank_consumed_active = false;
+        crypto_wipe(&bank_consumed_hash, sizeof(bank_consumed_hash));
     }
 #endif
 
@@ -959,6 +962,9 @@ void Player::on_main_loop(void *argument)
         while (fwfs::fgets(buf, sizeof(buf), this->current_file_handler) != NULL) {
 
             int len = strlen(buf);
+#ifdef WAVEFORM_ATTESTATION
+            bank_consume(buf, len);
+#endif
             if (len == 0) continue; // empty line? should not be possible
             if (buf[len - 1] == '\n' || fwfs::feof(this->current_file_handler)) {
                 if(discard) { // we are discarding a long line
@@ -2566,6 +2572,8 @@ void Player::bank_invalidate()
 {
     if (bank_execution.phase != BANK_UNBOUND && bank_execution.phase != BANK_INVALIDATED) {
         bank_execution.phase = BANK_INVALIDATED;
+        bank_consumed_active = false;
+        crypto_wipe(&bank_consumed_hash, sizeof(bank_consumed_hash));
         if (bank_execution.generation != UINT32_MAX) ++bank_execution.generation;
     }
 }
@@ -2597,7 +2605,23 @@ void Player::bank_start()
                   reinterpret_cast<const uint8_t *>(filename.data()), filename.size());
     bank_execution.size = total;
     bank_execution.cursor = 0; bank_execution.parsed_lines = 0;
+    bank_execution.consumed_size = 0; bank_execution.consumed_verified = 0;
+    memset(bank_execution.consumed_sha512, 0, 64);
+    crypto_sha512_init(&bank_consumed_hash); bank_consumed_active = true;
     bank_execution.phase = BANK_RUNNING; ++bank_execution.generation;
+}
+
+void Player::bank_consume(const char *bytes, size_t length)
+{
+    if (!bank_consumed_active || (bank_execution.phase != BANK_RUNNING && bank_execution.phase != BANK_PAUSED)) return;
+    const long cursor = current_file_handler ? fwfs::ftell(current_file_handler) : -1;
+    if (length == 0 || length > 129 || cursor < 0 ||
+        static_cast<unsigned long>(cursor) != bank_execution.consumed_size + length ||
+        static_cast<unsigned long>(cursor) > bank_execution.size) {
+        bank_invalidate(); return;
+    }
+    crypto_sha512_update(&bank_consumed_hash, reinterpret_cast<const uint8_t *>(bytes), length);
+    bank_execution.consumed_size += length;
 }
 
 void Player::bank_observe()
@@ -2640,6 +2664,13 @@ void Player::bank_end_read()
     bank_execution.phase = current_file_handler && fwfs::feof(current_file_handler) &&
         !::ferror(current_file_handler) && bank_execution.cursor == bank_execution.size
         ? BANK_EOF_REACHED : BANK_IO_ERROR;
+    if (bank_execution.phase == BANK_EOF_REACHED && bank_consumed_active &&
+        bank_execution.consumed_size == bank_execution.size) {
+        crypto_sha512_final(&bank_consumed_hash, bank_execution.consumed_sha512);
+        bank_execution.consumed_verified = memcmp(bank_execution.consumed_sha512, bank_execution.program_sha512, 64) == 0;
+        if (!bank_execution.consumed_verified) bank_execution.phase = BANK_INVALIDATED;
+    } else if (bank_execution.phase == BANK_EOF_REACHED) bank_execution.phase = BANK_INVALIDATED;
+    bank_consumed_active = false; crypto_wipe(&bank_consumed_hash, sizeof(bank_consumed_hash));
     if (bank_execution.generation == UINT32_MAX) bank_execution.phase = BANK_INVALIDATED;
     else ++bank_execution.generation;
 }
