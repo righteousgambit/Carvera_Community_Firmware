@@ -1185,8 +1185,9 @@ void Player::on_get_public_data(void *argument)
             pdr->set_taken();
         }
     } else if (pdr->second_element_is(inner_playing_checksum)) {
-    	bool b = this->inner_playing;
-        pdr->set_data_ptr(&b);
+        static bool inner_data;
+        inner_data = this->inner_playing;
+        pdr->set_data_ptr(&inner_data);
         pdr->set_taken();
     }
 }

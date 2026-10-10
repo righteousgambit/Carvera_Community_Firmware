@@ -3591,7 +3591,12 @@ void ATCHandler::on_get_public_data(void* argument)
 
     if(!pdr->starts_with(atc_handler_checksum)) return;
 	
-    if(pdr->second_element_is(get_tool_status_checksum)) {
+    if(pdr->second_element_is(get_bank_state_checksum)) {
+        bank_state *state = static_cast<bank_state *>(pdr->get_data_ptr());
+        state->status = static_cast<uint32_t>(this->atc_status);
+        state->queued_scripts = static_cast<uint32_t>(this->script_queue.size());
+        pdr->set_taken();
+    } else if(pdr->second_element_is(get_tool_status_checksum)) {
 		struct tool_status *t= static_cast<tool_status*>(pdr->get_data_ptr());
 		t->active_tool = this->active_tool;
 		t->target_tool = this->target_tool;
