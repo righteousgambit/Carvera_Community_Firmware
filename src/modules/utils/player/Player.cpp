@@ -1,3 +1,4 @@
+#include <cmath>
 /*
     This file is part of Smoothie (http://smoothieware.org/). The motion control part is heavily based on Grbl (https://github.com/simen/grbl).
     Smoothie is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
@@ -554,7 +555,7 @@ void Player::on_console_line_received( void *argument )
 
     string cmd = shift_parameter(possible_command);
 #ifdef WAVEFORM_ATTESTATION
-    if (!bank_dispatching_line && cmd != "bank_track" && cmd != "bank_exec" && cmd != "bank_exec2" &&
+    if (!bank_dispatching_line && cmd != "bank_track" && cmd != "bank_exec" && cmd != "bank_exec2" && cmd != "bank_exec3" &&
         cmd != "bank_attest" && cmd != "progress" && cmd != "play" &&
         cmd != "suspend" && cmd != "resume" && cmd != "abort") bank_invalidate();
 #endif
@@ -1196,6 +1197,28 @@ void Player::on_get_public_data(void *argument)
     if(!pdr->starts_with(player_checksum)) return;
 
 #ifdef WAVEFORM_ATTESTATION
+    if (pdr->second_element_is(bank_resume_snapshot_checksum)) {
+        bank_observe();
+        if (bank_execution.phase != BANK_PAUSED || bank_execution.flags != 123 || THEKERNEL->is_waiting() ||
+            before_resume_gcode.size() > 1024 || goto_line > UINT32_MAX || !std::isfinite(saved_spindle_rpm) || saved_spindle_rpm < 0 ||
+            !std::isfinite(saved_position[0]) || !std::isfinite(saved_position[1]) || !std::isfinite(saved_position[2])) return;
+        static_assert(sizeof(float) == 4, "Fixed binary32 resume snapshot");
+        uint8_t *out = bank_resume_snapshot;
+        auto word = [&out](uint32_t value) {
+            for (unsigned i = 0; i < 4; ++i) { *out++ = value & 255; value >>= 8; }
+        };
+        for (unsigned i = 0; i < 4; ++i) {
+            uint32_t bits;
+            const float value = i < 3 ? saved_position[i] : saved_spindle_rpm;
+            memcpy(&bits, &value, 4); word(bits);
+        }
+        word(current_motion_mode); word(goto_line);
+        word((saved_spindle_on ? 1U : 0U) | (saved_spindle_ccw ? 2U : 0U) |
+             (spindle_suspend_restore_enable ? 4U : 0U) | (THEKERNEL->get_laser_mode() ? 8U : 0U) | (last_spindle_on ? 16U : 0U));
+        word(bank_execution.flags);
+        crypto_sha512(out, reinterpret_cast<const uint8_t *>(before_resume_gcode.data()), before_resume_gcode.size());
+        pdr->set_data_ptr(bank_resume_snapshot); pdr->set_taken(); return;
+    }
     if (pdr->second_element_is(bank_execution_checksum)) {
         bank_observe();
         pdr->set_data_ptr(&bank_execution); pdr->set_taken(); return;

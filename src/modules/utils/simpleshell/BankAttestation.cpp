@@ -10,6 +10,10 @@ void SimpleShell::bank_track_command(string, StreamOutput *stream)
 {
     stream->printf("ERROR: bank_execution_disabled\n");
 }
+void SimpleShell::bank_exec3_command(string, StreamOutput *stream)
+{
+    stream->printf("ERROR: bank_execution_disabled\n");
+}
 void SimpleShell::bank_exec2_command(string, StreamOutput *stream)
 {
     stream->printf("ERROR: bank_execution_disabled\n");
@@ -175,10 +179,11 @@ void SimpleShell::bank_track_command(string parameters, StreamOutput *stream)
     stream->printf("bank_execution_armed\n");
 }
 
-static void bank_exec_read(string parameters, StreamOutput *stream, bool consumed)
+static void bank_exec_read(string parameters, StreamOutput *stream, unsigned version)
 {
-    const size_t EXECUTION_MESSAGE_SIZE = consumed ? 460 : 388;
-    uint8_t message[460] = {}, context[32];
+    const bool consumed = version >= 2;
+    const size_t EXECUTION_MESSAGE_SIZE = version == 3 ? 556 : consumed ? 460 : 388;
+    uint8_t message[556] = {}, context[32], restore[96] = {};
     if (parameters.size() != 97 || parameters[32] != ' ' || sequence == UINT32_MAX ||
         !hex(parameters.substr(0, 32), message + 16) ||
         !hex(parameters.substr(33, 64), context)) {
@@ -195,7 +200,14 @@ static void bank_exec_read(string parameters, StreamOutput *stream, bool consume
         THEKERNEL->is_config_load_error()) {
         stream->printf("ERROR: bank_execution_unbound\n"); return;
     }
-    const char *execution_magic = consumed ? "CVEXEC0000000002" : "CVEXEC0000000001";
+    if (version == 3) {
+        data = nullptr;
+        if (!PublicData::get_value(player_checksum, bank_resume_snapshot_checksum, &data) || !data || before.phase != BANK_PAUSED) {
+            stream->printf("ERROR: bank_resume_snapshot_unavailable\n"); return;
+        }
+        memcpy(restore, data, 96);
+    }
+    const char *execution_magic = version == 3 ? "CVEXEC0000000003" : consumed ? "CVEXEC0000000002" : "CVEXEC0000000001";
     memcpy(message, execution_magic, 16);
     memcpy(message + 48, context, 32);
     uint8_t seed[32] = {}, secret[64] = {}, public_key[32], signature[64];
@@ -221,6 +233,7 @@ static void bank_exec_read(string parameters, StreamOutput *stream, bool consume
         memcpy(out, before.consumed_sha512, 64); out += 64;
         word(out, before.consumed_size); word(out, before.consumed_verified);
     }
+    if (version == 3) { memcpy(out, restore, 96); out += 96; }
     crypto_ed25519_sign(signature, secret, message, EXECUTION_MESSAGE_SIZE);
     crypto_wipe(secret, 64);
     data = nullptr;
@@ -229,12 +242,23 @@ static void bank_exec_read(string parameters, StreamOutput *stream, bool consume
         memcmp(&before, data, sizeof(before)) != 0) {
         crypto_wipe(signature, 64); stream->printf("ERROR: bank_execution_state_changed\n"); return;
     }
+    if (version == 3) {
+        data = nullptr;
+        if (!PublicData::get_value(player_checksum, bank_resume_snapshot_checksum, &data) || !data || memcmp(restore, data, 96) != 0) {
+            crypto_wipe(signature, 64); stream->printf("ERROR: bank_resume_snapshot_changed\n"); return;
+        }
+        data = nullptr;
+        if (!PublicData::get_value(player_checksum, bank_execution_checksum, &data) || !data || memcmp(&before, data, sizeof(before)) != 0) {
+            crypto_wipe(signature, 64); stream->printf("ERROR: bank_execution_state_changed\n"); return;
+        }
+    }
     // This signature proves retained firmware bytes, not protected boot or machining accuracy.
-    stream->printf("{\"schema_version\":\"waveform.carvera.firmware_execution.%s\",\"message_hex\":\"", consumed ? "v2" : "v1");
+    stream->printf("{\"schema_version\":\"waveform.carvera.firmware_execution.%s\",\"message_hex\":\"", version == 3 ? "v3" : consumed ? "v2" : "v1");
     print_hex(stream, message, EXECUTION_MESSAGE_SIZE);
     stream->printf("\",\"signature_hex\":\""); print_hex(stream, signature, 64);
     stream->printf("\"}\n"); crypto_wipe(signature, 64);
 }
-void SimpleShell::bank_exec_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, false); }
-void SimpleShell::bank_exec2_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, true); }
+void SimpleShell::bank_exec_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, 1); }
+void SimpleShell::bank_exec2_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, 2); }
+void SimpleShell::bank_exec3_command(string parameters, StreamOutput *stream) { bank_exec_read(parameters, stream, 3); }
 #endif

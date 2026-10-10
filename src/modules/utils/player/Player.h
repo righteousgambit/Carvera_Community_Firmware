@@ -45,6 +45,7 @@ class Player : public Module {
     private:
 #ifdef WAVEFORM_ATTESTATION
         bank_execution_record bank_execution = {};
+        uint8_t bank_resume_snapshot[96] = {};
         bool bank_dispatching_line = false;
         crypto_sha512_ctx bank_consumed_hash = {};
         bool bank_consumed_active = false;
