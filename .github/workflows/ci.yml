@@ -77,7 +77,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set TOOLCHAIN_DIR
-        run: echo "TOOLCHAIN_DIR=$GITHUB_WORKSPACE/toolchain/$GCC_VERSION" >> $GITHUB_ENV
+        shell: bash
+        run: echo "TOOLCHAIN_DIR=$GITHUB_WORKSPACE/toolchain/$GCC_VERSION" >> "$GITHUB_ENV"
       
       - name: Cache compiler toolchain
         uses: actions/cache@v4
@@ -118,7 +119,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set TOOLCHAIN_DIR
-        run: echo "TOOLCHAIN_DIR=$GITHUB_WORKSPACE/toolchain/$GCC_VERSION" >> $GITHUB_ENV
+        run: echo "TOOLCHAIN_DIR=$GITHUB_WORKSPACE/toolchain/$GCC_VERSION" >> "$GITHUB_ENV"
 
       - name: Set VERSION
         id: set-version
