@@ -88,6 +88,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-toolchain-gcc-
       
+      - name: Install checksum tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install coreutils
+
       - name: Build firmware (Linux/macOS)
         if: matrix.os != 'windows-2022'
         run: |
@@ -97,7 +101,7 @@ jobs:
         if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
-          ./build/build.ps1 --GccVersion ${{ env.GCC_VERSION }} --Clean
+          ./build/build.ps1 -GccVersion ${{ env.GCC_VERSION }} -Clean
       
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
