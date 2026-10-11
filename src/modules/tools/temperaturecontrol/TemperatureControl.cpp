@@ -7,6 +7,7 @@
 
 #include "libs/Module.h"
 #include "libs/Kernel.h"
+#include "SensorEvidence.h"
 #include <math.h>
 #include "TemperatureControl.h"
 #include "TemperatureControlPool.h"
@@ -527,6 +528,8 @@ uint32_t TemperatureControl::thermistor_read_tick(uint32_t dummy)
     }
 
     last_reading = temperature;
+    if (name_checksum == spindle_temperature_checksum) THEKERNEL->sensor_evidence->measurement(0, isfinite(temperature));
+    else if (name_checksum == power_temperature_checksum) THEKERNEL->sensor_evidence->measurement(1, isfinite(temperature));
     return 0;
 }
 

@@ -35,6 +35,7 @@ public:
     /*
      * queue status
      */
+    unsigned int queued() const { return length ? (head_i + length - isr_tail_i) % length : 0; }
     bool is_empty(void) const;
     bool is_full(void) const;
 

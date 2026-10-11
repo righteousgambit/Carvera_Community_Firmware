@@ -8,6 +8,7 @@
 #include "ZProbe.h"
 
 #include "Kernel.h"
+#include "SensorEvidence.h"
 #include "BaseSolution.h"
 #include "Config.h"
 #include "Robot.h"
@@ -89,6 +90,8 @@ void ZProbe::on_module_loaded()
 
     // load settings
     this->config_load();
+    THEKERNEL->sensor_evidence->register_input(11, &pin);
+    THEKERNEL->sensor_evidence->register_input(12, &calibrate_pin);
     // register event-handlers
     register_for_event(ON_GCODE_RECEIVED);
     register_for_event(ON_GET_PUBLIC_DATA);
@@ -204,6 +207,8 @@ void ZProbe::on_main_loop(void *argument)
     if (halt_pending) {
         halt_pending = false;
         THEKERNEL->call_event(ON_HALT, nullptr);
+        THEKERNEL->streams->printf("error:3D Probe crash detected\r\n");
+        THEKERNEL->streams->printf("Manually move the probe to a safe position\r\n");
     }
 
     if (check_probe_tool() == 2){
@@ -280,6 +285,7 @@ void ZProbe::on_main_loop(void *argument)
 
 uint32_t ZProbe::read_probe(uint32_t dummy)
 {
+    THEKERNEL->sensor_evidence->probe_inputs();
 
     if (probe_triggered && !(this->pin.get() != invert_probe)) {
         probe_triggered = false;
@@ -292,11 +298,10 @@ uint32_t ZProbe::read_probe(uint32_t dummy)
             // Disable crash detection during TLO calibration to prevent false positives
             if (!probing && !calibrating && !tlo_calibrating) {
                 THEKERNEL->set_halt_reason(CRASH_DETECTED);
+                THEKERNEL->sensor_evidence->fault();
                 THEKERNEL->set_halted(true);
                 // Set a flag to process the halt event in the main loop
                 halt_pending = true;
-                THEKERNEL->streams->printf("error:3D Probe crash detected\r\n");
-                THEKERNEL->streams->printf("Manually move the probe to a safe position\r\n");
             } 
         }
     }
@@ -313,6 +318,7 @@ uint32_t ZProbe::read_probe(uint32_t dummy)
             }
             
             if (!probe_detected) {
+                THEKERNEL->sensor_evidence->probe_hit(1);
                 probe_detected = true;
                 probe_pin_position = STEPPER[Z_AXIS]->get_current_position();
             // if we are calibrating, the stop to the actuators comes from the read_calibrate method
@@ -347,6 +353,7 @@ uint32_t ZProbe::read_calibrate(uint32_t dummy)
             if (!calibrate_detected) {
                 // Record that the calibration pin is on, and at what position
                 // we detected this.
+                THEKERNEL->sensor_evidence->probe_hit(2);
                 calibrate_detected = true;
                 calibrate_pin_position = STEPPER[Z_AXIS]->get_current_position();
             }

@@ -7,6 +7,7 @@
 
 #include "libs/Kernel.h"
 #include "libs/FirmwareFileSystem.h"
+#include "libs/SensorEvidence.h"
 
 #include "modules/tools/laser/Laser.h"
 #include "modules/tools/spindle/SpindleMaker.h"
@@ -320,6 +321,8 @@ void init() {
             fwfs::fclose(fp);
         }
     }
+
+    kernel->sensor_evidence->start(sdok);
 
     // start the timers and interrupts
     THEKERNEL->conveyor->start(THEROBOT->get_number_registered_motors());

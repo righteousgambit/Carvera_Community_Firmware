@@ -7,6 +7,7 @@
 
 #include "libs/Module.h"
 #include "libs/Kernel.h"
+#include "SensorEvidence.h"
 #include "modules/communication/utils/Gcode.h"
 #include "modules/robot/Conveyor.h"
 #include "modules/robot/ActuatorCoordinates.h"
@@ -196,6 +197,7 @@ bool Endstops::load_old_config()
 	            info->axis =	i >Z_AXIS ? 'A'+i-3 : 'X'+i;
 	            info->axis_index = i;
 	            motor_alarms.push_back(info);
+                if (i <= Z_AXIS) THEKERNEL->sensor_evidence->register_input(i, &info->pin);
 	        }
 	
 	        hinfo.motor_alarm_pin.from_string(THEKERNEL->config->value(checksums[i][ALARM_PIN])->as_string("nc" ))->as_input();
@@ -212,6 +214,7 @@ bool Endstops::load_old_config()
 	
 	            // enter into endstop array
 	            endstops.push_back(info);
+            if (i <= Z_AXIS) THEKERNEL->sensor_evidence->register_input(4 + 2 * i + (j == MAX_PIN), &info->pin);
 	
 	            // add index to the homing struct if this is the one used for homing
 	            if((hinfo.home_direction && j == MIN_PIN) || (!hinfo.home_direction && j == MAX_PIN)) hinfo.pin_info= info;
@@ -265,6 +268,7 @@ bool Endstops::load_old_config()
 	            info->axis = 'X' + i;
 	            info->axis_index = i;
 	            motor_alarms.push_back(info);
+                if (i <= Z_AXIS) THEKERNEL->sensor_evidence->register_input(i, &info->pin);
 	        }
 	
 	        hinfo.motor_alarm_pin.from_string(THEKERNEL->config->value(checksums[i][ALARM_PIN])->as_string("nc" ))->as_input();
@@ -281,6 +285,7 @@ bool Endstops::load_old_config()
 	
 	            // enter into endstop array
 	            endstops.push_back(info);
+            if (i <= Z_AXIS) THEKERNEL->sensor_evidence->register_input(4 + 2 * i + (j == MAX_PIN), &info->pin);
 	
 	            // add index to the homing struct if this is the one used for homing
 	            if((hinfo.home_direction && j == MIN_PIN) || (!hinfo.home_direction && j == MAX_PIN)) hinfo.pin_info= info;
@@ -426,6 +431,7 @@ bool Endstops::load_config()
 
         // homing direction and convert to boolean where true is home to min, and false is home to max
         hinfo.home_direction=  direction == "home_to_min";
+        if (i <= Z_AXIS) THEKERNEL->sensor_evidence->register_input(4 + 2 * i + !hinfo.home_direction, &pin_info->pin);
 
         // homing cartesian position
         hinfo.homing_position= THEKERNEL->config->value(endstop_checksum, cs, position_checksum)->as_number(hinfo.home_direction ? 0 : 200);
@@ -498,6 +504,7 @@ void Endstops::get_global_configs()
     this->trim_mm[2] = THEKERNEL->config->value(gamma_trim_checksum)->as_number(0);
 
 	this->cover_endstop_pin.from_string( THEKERNEL->config->value(cover_endstop_checksum)->as_string("1.9^" ))->as_input();
+    THEKERNEL->sensor_evidence->register_input(10, &cover_endstop_pin);
 
     // see if an order has been specified, must be three or more characters, XYZABC or ABYXZ etc
     string order = THEKERNEL->config->value(homing_order_checksum)->as_string("");

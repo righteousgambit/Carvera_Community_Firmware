@@ -119,3 +119,32 @@ http://www.gnu.org/licenses/gpl-3.0.en.html
 - MRI is released under Apache 2.0, which you can find at
 https://www.apache.org/licenses/LICENSE-2.0
 
+
+## Sensor records
+
+Status responses include optional numeric `SE`, `SI`, `SC`, `SS`, `SA`, `SF`,
+`SP`, and `ST` fields. They describe sample identity, availability, configured
+input states, executing versus parsed lines, spindle statistics, ATC stages,
+and fault persistence. Position is derived from issued steps; feed is a planner
+value. Temperature ages refer to computed sensor readings, and probe-voltage
+age refers to receipt over the probe UART.
+
+`M964` reads the bounded event history while idle or halted. `M964 L1` reads the
+last validated SD fault record with its original boot identity. `M964 R1` reads
+and rearms history while idle and unhalted. `EH` starts a record, `EV` carries an
+event, and `EE:0` confirms completion; `EE:1` means unavailable or incomplete.
+Qualified probe/setter contacts emit `PRH` records from the main loop.
+
+The boot counter uses `/sd/sensor-boot.dat`. Fault records alternate between
+`/sd/sensor-fault0.dat` and `/sd/sensor-fault1.dat`. Boot identity is scoped to
+that SD state; failed writes or corrupt counters leave identity unavailable.
+Fault persistence runs after a halt in the main loop, so loss of power before
+that write can still lose the current fault. The fixed 16-event history spans
+about 1.6 seconds when only the 10 Hz periodic records occur; transitions shorten
+that span.
+
+`spindle.stall_detection_enable` defaults to `false`. Enabling it uses the
+configured spin-up delay and stall thresholds. Machine qualification is required
+before relying on this check. Portable state/storage checks are in
+`tests/TEST_sensor_evidence/test_state.cpp` and can be compiled with C++11 and
+`-Isrc/libs`.
