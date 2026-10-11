@@ -18,6 +18,7 @@
 #include <cctype>
 #include "libs/Kernel.h"
 #include "Robot.h"
+#include "GcodeSyntax.h"
 #include "PublicData.h"
 #include "SpindlePublicAccess.h"
 #include "StepperMotor.h"
@@ -30,6 +31,7 @@ Gcode::Gcode(const string &command, StreamOutput *stream, bool strip, unsigned i
     this->m= 0;
     this->g= 0;
     this->subcode= 0;
+    this->g_has_subcode= false;
     this->add_nl= false;
     this->is_error= false;
     this->stream= stream;
@@ -54,6 +56,7 @@ Gcode::Gcode(const Gcode &to_copy)
     this->m                     = to_copy.m;
     this->g                     = to_copy.g;
     this->subcode               = to_copy.subcode;
+    this->g_has_subcode         = to_copy.g_has_subcode;
     this->add_nl                = to_copy.add_nl;
     this->is_error              = to_copy.is_error;
     this->stream                = to_copy.stream;
@@ -69,6 +72,7 @@ Gcode &Gcode::operator= (const Gcode &to_copy)
         this->m                     = to_copy.m;
         this->g                     = to_copy.g;
         this->subcode               = to_copy.subcode;
+        this->g_has_subcode         = to_copy.g_has_subcode;
         this->add_nl                = to_copy.add_nl;
         this->is_error              = to_copy.is_error;
         this->stream                = to_copy.stream;
@@ -724,6 +728,7 @@ void Gcode::prepare_cached_values(bool strip)
     if( this->has_letter('G') ) {
         this->has_g = true;
         this->g = this->get_int('G', &p);
+        this->g_has_subcode = gcode_syntax::has_decimal_subcode(p);
 
     } else {
         this->has_g = false;
@@ -740,7 +745,7 @@ void Gcode::prepare_cached_values(bool strip)
 
     if(has_g || has_m) {
         // look for subcode and extract it
-        if(p != nullptr && *p == '.') {
+        if(gcode_syntax::has_decimal_subcode(p)) {
             this->subcode = strtoul(p+1, &p, 10);
 
         }else{

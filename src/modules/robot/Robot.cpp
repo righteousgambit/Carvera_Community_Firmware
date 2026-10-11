@@ -828,8 +828,15 @@ void Robot::on_gcode_received(void *argument)
                 }
                 break;
 
-            case 90: this->absolute_mode = true; this->e_absolute_mode = true; break;
-            case 91: this->absolute_mode = false; this->e_absolute_mode = false; break;
+            case 90: case 91:
+                if (gcode->g_has_subcode) {
+                    THEKERNEL->set_halt_reason(MANUAL);
+                    THEKERNEL->call_event(ON_HALT, nullptr);
+                    gcode->stream->printf("ERROR: Decimal G90/G91 modes are unsupported\n");
+                    return;
+                }
+                this->absolute_mode = this->e_absolute_mode = gcode->g == 90;
+                break;
 
             case 92: {
                 if(gcode->subcode == 1 || gcode->subcode == 2 || gcode->get_num_args() == 0) {

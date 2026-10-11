@@ -56,6 +56,27 @@ int main()
     history.rearm(); assert(history.count == 0 && !history.frozen);
     history.push(value); assert(history.oldest(0).sequence == 7);
 
+    history.sequence = UINT32_MAX;
+    history.push(value); assert(history.sequence == 0 && history.oldest(history.count - 1).sequence == 0);
+    history.overwritten = UINT32_MAX;
+    history.push(value); history.push(value); history.push(value);
+    assert(history.overwritten == UINT32_MAX);
+    ContactQueue<2> queue;
+    Contact contact = {};
+    queue.sequence = UINT32_MAX - 1;
+    assert(queue.push(contact) && queue.push(contact));
+    assert(!queue.push(contact) && queue.dropped == 1 && queue.sequence == 1);
+    assert(queue.pop(contact) && contact.event.sequence == UINT32_MAX);
+    assert(queue.pop(contact) && contact.event.sequence == 0);
+    assert(!queue.pop(contact));
+    queue.dropped = UINT32_MAX; queue.push(contact); queue.push(contact); queue.push(contact);
+    assert(queue.dropped == UINT32_MAX);
+    value.x_steps_per_mm = value.y_steps_per_mm = value.z_steps_per_mm = 400;
+    float x, y, z;
+    assert(event_position(value, x, y, z));
+    value.x_steps_per_mm = 0; assert(!event_position(value, x, y, z));
+    value.x_steps_per_mm = NAN; assert(!event_position(value, x, y, z));
+
     const char fixture[] = "123456789";
     assert((checksum(fixture, 9) ^ 0xffffffffU) == 0xcbf43926U);
     uint32_t partial = checksum(fixture, 4);
@@ -71,6 +92,11 @@ int main()
     assert(stats.rpm_min == 9000 && stats.rpm_max == 11000 && stats.rpm_mean == 10000);
     assert(stats.rpm_m2 / stats.samples == 1000000);
     assert(std::fabs(stats.pwm_m2 / stats.samples - .01f) < .000001f);
+
+    const auto samples = stats.samples;
+    assert(!stats.add(NAN, 1, 1, 100)); assert(stats.samples == samples);
+    assert(!stats.add(1000, INFINITY, 1, 100));
+    assert(!stats.add(1000, 1, 1, UINT32_MAX));
 
     StallDetector stall;
     assert(!stall.update(0, true, 12000, 0, 100, 50, 8000, 5000));
@@ -90,5 +116,8 @@ int main()
     assert(!wrapped.update(0xfffffff0U, true, 12000, 0, 20, 20, 8000, 5000));
     assert(!wrapped.update(4, true, 12000, 0, 20, 20, 8000, 5000));
     assert(wrapped.update(24, true, 12000, 0, 20, 20, 8000, 5000));
+    assert(!wrapped.update(100, true, NAN, 0, 0, 0, 8000, 5000));
+    assert(!wrapped.update(100, true, 12000, NAN, 0, 0, 8000, 5000));
+    assert(!wrapped.update(100, true, 12000, 0, UINT32_MAX, 0, 8000, 5000));
     std::cout << "sensor evidence state: all checks passed\n";
 }

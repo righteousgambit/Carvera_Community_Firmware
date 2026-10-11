@@ -8,6 +8,7 @@
 
 #include "Player.h"
 #include "libs/FirmwareFileSystem.h"
+#include "libs/PlayerAbort.h"
 #ifdef WAVEFORM_ATTESTATION
 #include "libs/monocypher/monocypher-ed25519.h"
 #include "libs/monocypher/monocypher.h"
@@ -768,6 +769,9 @@ void Player::progress_command( string parameters, StreamOutput *stream )
 
 void Player::abort_command( string parameters, StreamOutput *stream )
 {
+    // Discard deferred recovery commands even when no file is open or playing.
+    const uint32_t recovery_nonce = player_abort::dispose(parameters, this->buffered_queue, this->macro_file_queue);
+    player_abort::Receipt<StreamOutput> recovery_receipt(recovery_nonce, stream);
 #ifdef WAVEFORM_ATTESTATION
     bank_observe();
     if (bank_execution.phase >= BANK_ARMED && bank_execution.phase <= BANK_EOF_REACHED) {
@@ -802,8 +806,6 @@ void Player::abort_command( string parameters, StreamOutput *stream )
     this->playing_lines = 0;
     this->goto_line = 0;
     this->file_size = 0;
-    this->clear_buffered_queue();
-    this->clear_macro_file_queue();
     this->ocode_handler.reset();
     this->filename = "";
     // end smoothie
