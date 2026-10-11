@@ -556,7 +556,7 @@ void Player::on_console_line_received( void *argument )
 
     string cmd = shift_parameter(possible_command);
 #ifdef WAVEFORM_ATTESTATION
-    if (!bank_dispatching_line && cmd != "bank_track" && cmd != "bank_exec" && cmd != "bank_exec2" && cmd != "bank_exec3" && cmd != "bank_exec4" &&
+    if (!bank_dispatching_line && cmd != "bank_track" && cmd != "bank_exec" && cmd != "bank_exec2" && cmd != "bank_exec3" && cmd != "bank_exec4" && cmd != "bank_exec5" &&
         cmd != "bank_attest" && cmd != "progress" && cmd != "play" &&
         cmd != "suspend" && cmd != "resume" && cmd != "abort") bank_invalidate();
 #endif

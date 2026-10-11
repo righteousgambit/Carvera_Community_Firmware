@@ -20,3 +20,4 @@ else
 fi
 
 echo "VERSION=$version" >>"$GITHUB_OUTPUT"
+echo "VERSION=$version"
