@@ -10,6 +10,7 @@
 
 #include "libs/Module.h"
 #include "libs/Kernel.h"
+#include "SensorEvidence.h"
 #include "libs/gpio.h"
 #include "ATCHandler.h"
 #include "SlowTicker.h"
@@ -1749,6 +1750,10 @@ void ATCHandler::on_config_reload(void *argument)
 	detector_info.detect_rate = THEKERNEL->config->value(atc_checksum, detector_checksum, detect_rate_mm_s_checksum)->as_number(1  );
 	detector_info.detect_travel = THEKERNEL->config->value(atc_checksum, detector_checksum, detect_travel_mm_checksum)->as_number(1  );
 	this->disable_toolsensor = !THEKERNEL->config->value(atc_checksum, detector_checksum, enable_checksum)->as_bool(true);
+    if (THEKERNEL->factory_set->FuncSetting & (1 << 2)) {
+        THEKERNEL->sensor_evidence->register_input(13, &atc_home_info.pin);
+        THEKERNEL->sensor_evidence->register_input(14, &detector_info.detect_pin);
+    }
 
 	this->safe_z_mm = THEKERNEL->config->value(atc_checksum, safe_z_checksum)->as_number(-10);
 	this->safe_z_empty_mm = THEKERNEL->config->value(atc_checksum, safe_z_empty_checksum)->as_number(-20);
@@ -3591,7 +3596,12 @@ void ATCHandler::on_get_public_data(void* argument)
 
     if(!pdr->starts_with(atc_handler_checksum)) return;
 	
-    if(pdr->second_element_is(get_tool_status_checksum)) {
+    if(pdr->second_element_is(get_bank_state_checksum)) {
+        bank_state *state = static_cast<bank_state *>(pdr->get_data_ptr());
+        state->status = static_cast<uint32_t>(this->atc_status);
+        state->queued_scripts = static_cast<uint32_t>(this->script_queue.size());
+        pdr->set_taken();
+    } else if(pdr->second_element_is(get_tool_status_checksum)) {
 		struct tool_status *t= static_cast<tool_status*>(pdr->get_data_ptr());
 		t->active_tool = this->active_tool;
 		t->target_tool = this->target_tool;

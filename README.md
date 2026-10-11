@@ -119,3 +119,65 @@ http://www.gnu.org/licenses/gpl-3.0.en.html
 - MRI is released under Apache 2.0, which you can find at
 https://www.apache.org/licenses/LICENSE-2.0
 
+
+## Sensor records
+
+Status responses include optional numeric `SE`, `SI`, `SC`, `SS`, `SA`, `SF`,
+`SP`, `ST`, and `SQ` fields. They describe sample identity, availability, configured
+input states, executing versus parsed lines, spindle statistics, ATC stages,
+and fault persistence. Position is derived from issued steps; feed is a planner
+value. Temperature ages refer to computed sensor readings, and probe-voltage
+age refers to receipt over the probe UART.
+
+`M964` reads the bounded event history while idle or halted. `M964 L1` reads the
+last validated SD fault record with its original boot identity. `M964 R1` reads
+and rearms history while idle and unhalted. `EH` starts a record, `EV` carries an
+event, and `EE:0` confirms completion; `EE:1` means unavailable or incomplete.
+Qualified probe/setter contacts emit `PRH` records from a two-contact main-loop
+queue. `SQ` reports contact sequence, cumulative dropped contacts, pending
+contacts, fault-write duration, and the last rearm result (0 not requested,
+1 accepted, 2 rejected). Sequence numbers wrap modulo 2^32, including zero.
+Dropped-contact and overwritten-event counts saturate instead of wrapping.
+
+`abort -R <nonce>` accepts a nonzero decimal 32-bit nonce. After disposing of
+buffered commands and macro returns, it replies `{RB:1,<nonce>}` to the requesting
+stream when abort handling returns, including when no file is playing. Queue
+disposal happens at entry; the receipt is withheld during abort's motion waits.
+Physical stop still requires a fresh idle status. Other abort parameters keep
+their existing behavior and receive no correlated receipt.
+
+The boot counter uses `/sd/sensor-boot.dat`, with two copies of each reserved
+identity before it is issued. A single corrupt legacy counter slot leaves
+identity unavailable because the lost slot could have held a newer identity.
+Fault records alternate between
+`/sd/sensor-fault0.dat` and `/sd/sensor-fault1.dat`. Boot identity is scoped to
+that SD state; failed writes or corrupt counters leave identity unavailable.
+Fault persistence runs once after a halt and drained motion in the main loop,
+so loss of power before
+that write can still lose the current fault. The payload is flushed before
+its commit header and the complete record is validated after close. These
+checks cannot guarantee SD-card durability during physical power loss. An
+incomplete or corrupt record leaves the last validated alternate slot intact.
+The fixed 16-event history spans
+about 1.6 seconds when only the 10 Hz periodic records occur; transitions shorten
+that span.
+
+`spindle.stall_detection_enable` defaults to `false`. Enabling it uses the
+configured spin-up delay and stall thresholds. Machine qualification is required
+before relying on this check. Portable state/storage checks are in
+`tests/TEST_sensor_evidence/test_state.cpp` and can be compiled with C++11 and
+`-Isrc/libs`.
+
+G-code parenthesis comments preserve executable words after the closing
+parenthesis. Nested or unmatched parentheses in executable G-code halt before
+the block is dispatched. Text and filename commands preserve their payload
+without interpreting its punctuation or G-code words. Integer `G90`/`G91` words apply before motion on the same block;
+decimal `G90.x`/`G91.x` modes are unsupported and halt before dispatch.
+
+## Optional bank signing
+
+Ordinary builds leave `WAVEFORM_ATTESTATION` disabled. Enabling it requires an
+explicit measured image range and changes the boot-memory budget. The signing-
+enabled build exceeds the known CA1 main-heap budget and must not be deployed
+on CA1. Its C1 build and memory checks pass, but machine qualification remains
+required. The default build passes the known C1 and CA1 memory checks.

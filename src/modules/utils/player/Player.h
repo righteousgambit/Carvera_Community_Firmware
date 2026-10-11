@@ -10,6 +10,10 @@
 
 #include "Module.h"
 #include "OCodeHandler.h"
+#ifdef WAVEFORM_ATTESTATION
+#include "PlayerPublicAccess.h"
+#include "libs/monocypher/monocypher-ed25519.h"
+#endif
 
 #include <stdio.h>
 #include <string>
@@ -39,6 +43,21 @@ class Player : public Module {
         void on_halt(void *argument);
 
     private:
+#ifdef WAVEFORM_ATTESTATION
+        bank_execution_record bank_execution = {};
+        uint8_t bank_resume_snapshot[96] = {};
+        uint8_t bank_saved_robot[144] = {};
+        uint8_t bank_resume_plan[512] = {};
+        bool bank_saved_robot_valid = false;
+        bool bank_dispatching_line = false;
+        crypto_sha512_ctx bank_consumed_hash = {};
+        bool bank_consumed_active = false;
+        void bank_consume(const char *bytes, size_t length);
+        void bank_invalidate();
+        void bank_start();
+        void bank_observe();
+        void bank_end_read();
+#endif
         bool prepare_ocode_prescan(StreamOutput* stream, const char* fail_msg);
         void play_command( string parameters, StreamOutput* stream );
         void progress_command( string parameters, StreamOutput* stream );

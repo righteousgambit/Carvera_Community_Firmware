@@ -11,6 +11,7 @@
 #include "SpindleControl.h"
 #include <stdint.h>
 #include "Pin.h"
+#include "SensorEvidenceState.h"
 
 namespace mbed {
     class PwmOut;
@@ -60,7 +61,8 @@ class PWMSpindleControl: public SpindleControl {
         int  stall_s;
         int  stall_count_rpm;
         int  stall_alarm_rpm;
-        uint32_t stall_timer;
+        sensor_evidence::StallDetector stall_detector;
+        bool stall_detection_enable;
         float acc_ratio;
         Pin alarm_pin;
 

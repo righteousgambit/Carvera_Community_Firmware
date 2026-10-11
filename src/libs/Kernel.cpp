@@ -7,6 +7,8 @@
 
 #include "libs/Kernel.h"
 #include "libs/FirmwareFileSystem.h"
+#include "libs/SensorEvidence.h"
+#include "Gcode.h"
 #include "libs/Module.h"
 #include "libs/Config.h"
 #include "libs/CRC16.h"
@@ -117,6 +119,7 @@ Kernel::Kernel()
     for(int i = 0; i < 30; ++i) local_params[i] = 0.0f;
 
     instance = this; // setup the Singleton instance of the kernel
+    sensor_evidence = new(AHB) SensorEvidence();
 
     // init I2C
     this->i2c = new mbed::I2C(P0_27, P0_28);
@@ -408,31 +411,24 @@ std::string Kernel::get_query_string()
         str.append(buf, n);
     }
 
-    // get spindle temperature
+    uint32_t sensor_validity = pwm_spindle ? 1U : 0U;
     struct pad_temperature temp;
-    ok = PublicData::get_value( temperature_control_checksum, current_temperature_checksum, spindle_temperature_checksum, &temp );
-	if (ok) {
-        n= snprintf(buf, sizeof(buf), ",%1.1f", temp.current_temperature);
-        if(n > sizeof(buf)) n= sizeof(buf);
+    bool spindle_temp_valid = PublicData::get_value(temperature_control_checksum, current_temperature_checksum, spindle_temperature_checksum, &temp) && isfinite(temp.current_temperature) && sensor_evidence->measurement_valid(0);
+    float spindle_temp = spindle_temp_valid ? temp.current_temperature : 0;
+    bool power_temp_valid = PublicData::get_value(temperature_control_checksum, current_temperature_checksum, power_temperature_checksum, &temp) && isfinite(temp.current_temperature) && sensor_evidence->measurement_valid(1);
+    float power_temp = power_temp_valid ? temp.current_temperature : 0;
+    if (spindle_temp_valid) sensor_validity |= 1U << 1;
+    if (power_temp_valid) sensor_validity |= 1U << 2;
+    if (pwm_spindle) {
+        n = snprintf(buf, sizeof(buf), ",%1.1f,%1.1f,0,0,%d", spindle_temp, power_temp, int(get_extout_mode()));
         str.append(buf, n);
-	}	
-	
-    // get power temperature
-    ok = PublicData::get_value( temperature_control_checksum, current_temperature_checksum, power_temperature_checksum, &temp );
-	if (!ok) temp.current_temperature = 0;
-    n= snprintf(buf, sizeof(buf), ",%1.1f", temp.current_temperature);
-    if(n > sizeof(buf)) n= sizeof(buf);
-    str.append(buf, n);
-	// get extout_mode 
-	n= snprintf(buf, sizeof(buf), ",%d,%d,%d", 0, 0, int(this->get_extout_mode()));
-    if(n > sizeof(buf)) n= sizeof(buf);
-    str.append(buf, n);
+    }
 
     // current tool number and tool offset
     struct tool_status tool;
     ok = PublicData::get_value( atc_handler_checksum, get_tool_status_checksum, &tool );
     if (ok) {
-
+        sensor_validity |= 1U << 3;
 	    n= snprintf(buf, sizeof(buf), "|T:%d,%1.3f,%d,%d", tool.active_tool, tool.tool_offset, tool.target_tool, tool.target_collet_type);
         if(n > sizeof(buf)) n= sizeof(buf);
         str.append(buf, n);
@@ -441,7 +437,8 @@ std::string Kernel::get_query_string()
     // wireless probe current voltage
     float wp_voltage;
     ok = PublicData::get_value( atc_handler_checksum, get_wp_voltage_checksum, &wp_voltage );
-    if (ok) {
+    if (ok && isfinite(wp_voltage) && sensor_evidence->measurement_valid(2)) {
+        sensor_validity |= 1U << 4;
         n= snprintf(buf, sizeof(buf), "|W:%1.2f", wp_voltage);
         if(n > sizeof(buf)) n= sizeof(buf);
         str.append(buf, n);
@@ -517,6 +514,7 @@ std::string Kernel::get_query_string()
         str.append(buf, n);
     }
 
+    sensor_evidence->append_status(str, sensor_validity, running ? 1U : 2U);
     str.append(">\n");
     return str;
 }
@@ -692,8 +690,18 @@ bool Kernel::dispatch_console_line(SerialMessage& message)
 void Kernel::call_event(_EVENT_ENUM id_event, void * argument)
 {
     bool was_idle = true;
+    if (id_event == ON_MAIN_LOOP) sensor_evidence->update_context();
+    if (id_event == ON_IDLE && __get_IPSR() == 0) {
+        sensor_evidence->flush_probe_hit();
+        sensor_evidence->update_context();
+    }
+    if (id_event == ON_GCODE_RECEIVED) {
+        Gcode* gcode = static_cast<Gcode*>(argument);
+        if (gcode->has_m && gcode->m == 964) sensor_evidence->dump(gcode->stream, gcode->has_letter('R') && gcode->get_value('R') == 1, gcode->has_letter('L') && gcode->get_value('L') == 1);
+    }
     if(id_event == ON_HALT) {
         this->halted = (argument == nullptr);
+        if (this->halted) sensor_evidence->fault();
         if(!this->halted && this->feed_hold) this->feed_hold= false; // also clear feed hold
         was_idle = conveyor->is_idle(); // see if we were doing anything like printing
         void *returned_data;
@@ -1252,4 +1260,10 @@ void Kernel::set_tool_waiting(bool f) {
 			PublicData::set_value( atc_handler_checksum, set_target_collet_type_checksum, &collet_type );
 		}
 	}
+}
+
+void Kernel::set_atc_state(uint8_t state)
+{
+    sensor_evidence->stage(state);
+    atc_state = state;
 }

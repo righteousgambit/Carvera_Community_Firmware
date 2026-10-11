@@ -5,6 +5,7 @@
 #include <string>
 
 #define atc_handler_checksum   		CHECKSUM("atc_handler")
+#define get_bank_state_checksum CHECKSUM("get_bank_state")
 #define get_tool_status_checksum    CHECKSUM("get_tool_status")
 #define set_target_collet_type_checksum CHECKSUM("set_target_collet_type")
 #define get_machine_offsets_checksum CHECKSUM("get_machine_offsets")
@@ -19,6 +20,11 @@
 #define get_wp_voltage_checksum	CHECKSUM("get_wp_voltage")
 #define show_wp_state_checksum  CHECKSUM("show_wp_state")
 #define get_atc_clamped_status_checksum CHECKSUM("atc_clamp_status")
+
+struct bank_state {
+    uint32_t status;
+    uint32_t queued_scripts;
+};
 
 struct tool_status {
 	int active_tool;

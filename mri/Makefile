@@ -77,6 +77,7 @@ HOST_AR  := ar
 
 # Handle Windows and *nix differences.
 ifeq "$(OS)" "Windows_NT"
+    SHELL := cmd.exe
     MAKEDIR = if not exist $(subst /,\,$(dir $@)) (mkdir $(subst /,\,$(dir $@)))
     REMOVE := del /q
     REMOVE_DIR := rd /s /q

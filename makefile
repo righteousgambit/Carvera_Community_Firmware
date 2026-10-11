@@ -64,6 +64,9 @@ export GCC GPP AS LD OBJCOPY OBJDUMP SIZE AR # Include AR for mri/Makefile
 ifeq ($(strip $(CXX)),)
   $(error CXX is not defined. Cannot determine compiler version.)
 endif
+ifeq "$(OS)" "Windows_NT"
+SHELL := cmd.exe
+endif
 GCC_VERSION := $(shell $(CXX) -dumpversion)
 # GCC Version detection - different approach for Windows vs Unix
 ifeq "$(OS)" "Windows_NT"

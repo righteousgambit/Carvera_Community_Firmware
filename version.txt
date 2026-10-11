@@ -1,3 +1,9 @@
+[Unreleased]
+- Added source-timed sensor and motion records, raw alarm and contact events, and retained fault history with integrity-checked SD persistence.
+- Added signed bank execution and paused-state evidence; bank signing remains disabled by default.
+- Added a correlated recovery-abort acknowledgement after buffered and macro queue disposal.
+- Fixed command preflight for comments, distance modes, and filename or text payloads.
+
 [2.2.0c-RC3]
 - Fixed: A-axis position tracking no longer lags the commanded angle when a move is smaller than one stepper step
 - Fixed: Makera protocol realtime control commands were not immediately processed under certain conditions

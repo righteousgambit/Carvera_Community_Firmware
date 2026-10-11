@@ -7,6 +7,7 @@
 
 #include "libs/Module.h"
 #include "libs/Kernel.h"
+#include "SensorEvidence.h"
 #include "PWMSpindleControl.h"
 #include "Config.h"
 #include "checksumm.h"
@@ -43,6 +44,7 @@
 #define spindle_stall_s_checksum			CHECKSUM("stall_s")
 #define spindle_stall_count_rpm_checksum	CHECKSUM("stall_count_rpm")
 #define spindle_stall_alarm_rpm_checksum	CHECKSUM("stall_alarm_rpm")
+#define spindle_stall_detection_enable_checksum CHECKSUM("stall_detection_enable")
 #define spindle_max_rpm_checksum            CHECKSUM("max_rpm")
 
 #define UPDATE_FREQ 100
@@ -59,7 +61,7 @@ void PWMSpindleControl::on_module_loaded()
     current_I_value = 0;
     current_pwm_value = 0;
     time_since_update = 0;
-    stall_timer = 0;
+    stall_detection_enable = THEKERNEL->config->value(spindle_checksum, spindle_stall_detection_enable_checksum)->as_bool(false);
     max_rpm = 12000;
     spindle_on = false;
     
@@ -135,6 +137,7 @@ void PWMSpindleControl::on_module_loaded()
         delete smoothie_pin;
     }
     
+    THEKERNEL->sensor_evidence->register_input(3, &alarm_pin);
     THEKERNEL->slow_ticker->attach(UPDATE_FREQ, this, &PWMSpindleControl::on_update_speed);
 }
 
@@ -214,6 +217,7 @@ uint32_t PWMSpindleControl::on_update_speed(uint32_t dummy)
     else
         pwm_pin->write(current_pwm_value);
     
+    THEKERNEL->sensor_evidence->spindle_sample(current_rpm, current_pwm_value, max_pwm, spindle_on ? target_rpm * factor / 100.0f : 0);
     return 0;
 }
 
@@ -334,16 +338,12 @@ bool PWMSpindleControl::get_alarm(void)
 // get stall status
 bool PWMSpindleControl::get_stall(void)
 {
-	if (this->spindle_on && this->target_rpm > stall_count_rpm && this->current_rpm < stall_alarm_rpm) {
-		if (stall_timer == 0) {
-			stall_timer = us_ticker_read();
-		} else if (us_ticker_read() - stall_timer > (uint32_t)stall_s * 1000000) {
-			return true;
-		}
-	} else {
-		stall_timer = 0;
-	}
-	return false;
+    // Unsigned timer subtraction is valid for these bounded intervals.
+    if (delay_s < 0 || delay_s > 2147 || stall_s <= 0 || stall_s > 2147 ||
+        stall_alarm_rpm <= 0 || stall_count_rpm <= stall_alarm_rpm) return false;
+    return stall_detector.update(us_ticker_read(), spindle_on, target_rpm * factor / 100.0f,
+        current_rpm, uint32_t(delay_s) * 1000000U, uint32_t(stall_s) * 1000000U,
+        stall_count_rpm, stall_alarm_rpm);
 }
 
 void PWMSpindleControl::on_idle(void *argument)
@@ -357,12 +357,11 @@ void PWMSpindleControl::on_idle(void *argument)
 		return;
     }
     // check spindle stall
-    /*
-    if (this->get_stall()) {
+    if (stall_detection_enable && this->get_stall()) {
 		THEKERNEL->streams->printf("ERROR: Spindle stall triggered -  reset required\n");
 		THEKERNEL->set_halt_reason(SPINDLE_STALL);
 		THEKERNEL->call_event(ON_HALT, nullptr);
-    }*/
+    }
 
 }
 

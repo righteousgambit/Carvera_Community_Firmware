@@ -1,4 +1,5 @@
 #include "libs/Kernel.h"
+#include "SensorEvidence.h"
 #include "MainButton.h"
 #include "libs/nuts_bolts.h"
 #include "libs/utils.h"
@@ -97,6 +98,7 @@ void MainButton::on_module_loaded()
     {
     	this->e_stop.from_string( THEKERNEL->config->value( e_stop_pin_checksum )->as_string("0.20^"))->as_input();
     }
+    THEKERNEL->sensor_evidence->register_input(15, &e_stop);
     this->PS12.from_string( THEKERNEL->config->value( ps12_pin_checksum )->as_string("0.22"))->as_output();
     this->PS24.from_string( THEKERNEL->config->value( ps24_pin_checksum )->as_string("0.10"))->as_output();
     this->power_fan_delay_s = THEKERNEL->config->value( power_fan_delay_s_checksum )->as_int(30);

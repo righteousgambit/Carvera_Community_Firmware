@@ -1,0 +1,82 @@
+#include "GcodeSyntax.h"
+#include <cassert>
+#include <iostream>
+using namespace gcode_syntax;
+static void check(std::string source, const std::string& expected, Result result = OK) {
+    assert(prepare_dispatch(source) == result);
+    if (result == OK) assert(source == expected);
+}
+int main() {
+    check("G1 X1 (G91)", "G1 X1  ");
+    check("G1 X1 (ignored) Y2", "G1 X1   Y2");
+    check("G1 X1 ; G91", "G1 X1 ");
+    check("G1 (ignored; G91) X1 G90", "G90G1   X1 ");
+    check("G1X1G91", "G91G1X1");
+    check("G1X1G90G91", "G90G91G1X1");
+    check("G91G1X1G90", "G91G90G1X1");
+    check("G1X1G900", "G1X1G900");
+    check("G1X1G00090", "G00090G1X1");
+    check("G1X1G99999999999999999990", "G1X1G99999999999999999990");
+    check("G9(comment)1", "G9 1");
+    check("G1X1G90.1", "", DECIMAL_DISTANCE_MODE);
+    check("G1X1G91.16", "", DECIMAL_DISTANCE_MODE);
+    check("G90.0", "", DECIMAL_DISTANCE_MODE);
+    check("G91.", "", DECIMAL_DISTANCE_MODE);
+    check("G1 (unterminated", "", MALFORMED_COMMENT);
+    check("G1 (nested (comment)) X1", "", MALFORMED_COMMENT);
+    check("G1 X1 )", "", MALFORMED_COMMENT);
+    check("M3 S12000 G1 X10 G91.1", "", DECIMAL_DISTANCE_MODE);
+    check("M3 G1X10 G91", "G91M3 G1X10 ");
+    check("S12000 G1X10 G91", "G91S12000 G1X10 ");
+    check("T2 G1X10 G90", "G90T2 G1X10 ");
+    check("M1170 G91.1", "", DECIMAL_DISTANCE_MODE);
+    check("N12 M3 G1X10 G91", "G91M3 G1X10 ");
+    check("N12 (comment) G1X10 G91", "G91G1X10 ");
+    check("(comment) G91", "G91  ");
+    check("(comment) G1X5", "  G1X5");
+    check("N12 M118 G91.1", "M118 G91.1");
+    check("load foo(bar)", "load foo(bar)");
+    check("$H (text)", "$H (text)");
+    check("X1 G91", "X1 G91");
+    check("G1X1G+91.1", "", DECIMAL_DISTANCE_MODE);
+    check("G1X1G 91.1", "", DECIMAL_DISTANCE_MODE);
+    check("G1X1G \t+91.1", "", DECIMAL_DISTANCE_MODE);
+    check("G1X1G+91", "G+91G1X1");
+    check("G1X1G 91", "G 91G1X1");
+    check("M118.1 P1 labelG91.1", "M118.1 P1 labelG91.1");
+    check("M118 ) literal", "M118 ) literal");
+    check("M118 (nested (literal))", "M118 (nested (literal))");
+    check("(prefix) N12 M118 ) G91.1", "M118 ) G91.1");
+    check("M3 G1 X10 M118 labelG91", "M3 G1 X10 M118 labelG91");
+    check("G1X10 M118 labelG91.1", "G1X10 M118 labelG91.1");
+    check("G1X10 M118 ) literal(G91.1", "G1X10 M118 ) literal(G91.1");
+    check("G1X10G91 M118 labelG90", "G91G1X10 M118 labelG90");
+    check("G1X10 M32 jobG91.nc", "G1X10 M32 jobG91.nc");
+    check("N12 G1X10 M118 labelG91.1", "G1X10 M118 labelG91.1");
+    check("M1180 G91.1", "", DECIMAL_DISTANCE_MODE);
+    check("M28 G91.nc", "M28 G91.nc");
+    check("M32 jobG90", "M32 jobG90");
+    check("M23 /sd/jobG91.nc", "M23 /sd/jobG91.nc");
+    check("M1000 cat /sd/G91.nc", "M1000 cat /sd/G91.nc");
+    check("M501 customG91.nc", "M501 customG91.nc");
+    check("M576.2 /sd/G91.nc", "M576.2 /sd/G91.nc");
+    check("M98.1 \"macroG91.nc\"", "M98.1 \"macroG91.nc\"");
+    assert(opaque_command("M118 ) G91"));
+    assert(opaque_command("M576.2 G91.nc"));
+    assert(opaque_command("M98.1 \"G91.nc\""));
+    assert(!opaque_command("M98 P91"));
+    assert(!opaque_command("M1180 G91"));
+    assert(opaque_command("M30 G91.nc", false));
+    assert(!opaque_command("M30 G91", true));
+    std::string remove = "M30 G91.nc";
+    assert(prepare_dispatch(remove, false) == OK && remove == "M30 G91.nc");
+    check("M118 G91.1", "M118 G91.1");
+    check("M117 G90", "M117 G90");
+    check(";comment", "");
+    check("(comment)", " ");
+    assert(has_decimal_subcode(".16"));
+    assert(has_decimal_subcode(".0"));
+    assert(!has_decimal_subcode("X1"));
+    assert(!has_decimal_subcode(nullptr));
+    std::cout << "G-code syntax: comment tails, modal word boundaries, unsupported decimals passed\n";
+}

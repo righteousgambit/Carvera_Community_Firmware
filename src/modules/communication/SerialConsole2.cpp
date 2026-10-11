@@ -10,6 +10,8 @@
 using std::string;
 #include "libs/Module.h"
 #include "libs/Kernel.h"
+#include "SensorEvidence.h"
+#include <math.h>
 #include "Gcode.h"
 #include "Config.h"
 #include "ConfigValue.h"
@@ -85,11 +87,12 @@ void SerialConsole2::on_main_loop(void * argument) {
            this->buffer.pop_front(c);
            if ( c == '\n' ) {
         	   // THEKERNEL->streams->printf("WP received: [%s]\n", received.c_str());
-        	   if (received[0] == 'V') {
+               if (!received.empty() && received[0] == 'V') {
             	   // get wireless probe voltage
             	   Gcode gc(received, &StreamOutput::NullStream);
-            	   if (gc.get_value('V') <= 4.2) {
+                   if (isfinite(gc.get_value('V')) && gc.get_value('V') > 0 && gc.get_value('V') <= 4.2) {
                 	   this->wp_voltage = gc.get_value('V');
+                    THEKERNEL->sensor_evidence->measurement(2, true);
                 	   // compare voltage value and switch probe charger
                 	   if (this->wp_voltage <= this->min_voltage) {
                 		   struct pad_switch pad;
@@ -111,11 +114,11 @@ void SerialConsole2::on_main_loop(void * argument) {
                            }
                 	   }
             	   }
-        	   } else if (received[0] == 'A' && received.length() > 2) {
+               } else if (received.length() > 2 && received[0] == 'A') {
         		   // get wireless probe address
         		   THEKERNEL->probe_addr = ((uint16_t)received[2] << 8) | received[1];
         		   THEKERNEL->streams->printf("WP power: [%1.2fv], addr: [%0d]\n", this->wp_voltage, THEKERNEL->probe_addr);
-        	   } else if (received[0] == 'P' && received.length() > 1) {
+               } else if (received.length() > 1 && received[0] == 'P') {
         		   THEKERNEL->streams->printf("WP PAIR %s!\n", received[1] ? "SUCCESS" : "TIMEOUT");
         	   }
                else if (received.length() > 2 && communication_protocol == PROTOCOL_MAKERA)

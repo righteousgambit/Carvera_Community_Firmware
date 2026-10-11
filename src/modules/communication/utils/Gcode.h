@@ -59,6 +59,7 @@ class Gcode {
             bool has_m:1;
             bool has_g:1;
             bool stripped:1;
+            bool g_has_subcode:1;
             bool is_error:1;
             uint8_t subcode:4;
         };

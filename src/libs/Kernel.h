@@ -39,6 +39,7 @@ class Adc;
 class PublicData;
 class SimpleShell;
 class Configurator;
+class SensorEvidence;
 struct SerialMessage;
 
 enum STATE {
@@ -211,7 +212,7 @@ class Kernel {
         uint8_t get_halt_reason() const { return halt_reason; }
         void set_halted(bool h) { halted = h; }
 
-        void set_atc_state(uint8_t state) { atc_state = state; }
+        void set_atc_state(uint8_t state);
         uint8_t get_atc_state() const { return atc_state; }        
         
         void set_cachewait(bool f) { cachewait = f; }
@@ -234,6 +235,7 @@ class Kernel {
         std::string get_diagnose_string();
 
         // These modules are available to all other modules
+        SensorEvidence*   sensor_evidence;
         SerialConsole*    serial;
         StreamOutputPool* streams;
         GcodeDispatch*    gcode_dispatch;

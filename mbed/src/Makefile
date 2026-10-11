@@ -30,6 +30,7 @@ COMMON_HEADERS     =$(patsubst %.h,$(DROP_DIR)/%.h,$(COMMON_HEADER_SRCS))
 
 # Command line tools that are different between *nix and Windows.
 ifeq "$(OS)" "Windows_NT"
+SHELL      =cmd.exe
 REMOVE     =del /q
 REMOVE_DIR =rd /s /q
 COPY       =copy

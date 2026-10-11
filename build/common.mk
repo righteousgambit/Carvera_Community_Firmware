@@ -82,6 +82,12 @@ endif
 
 # do not compile the src/testframework as that can only be done with rake
 CSRCS = $(filter-out $(SRC)/testframework/%,$(CSRCS2))
+# Attestation crypto is excluded from ordinary firmware builds.
+ifeq "$(WAVEFORM_ATTESTATION)" "1"
+DEFINES += -DWAVEFORM_ATTESTATION
+else
+CSRCS := $(filter-out $(SRC)/libs/monocypher/%,$(CSRCS))
+endif
 
 ifeq "$(DISABLEMSD)" "1"
 DEFINES += -DDISABLEMSD

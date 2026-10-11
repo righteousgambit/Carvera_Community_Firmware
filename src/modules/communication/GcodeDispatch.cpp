@@ -6,6 +6,7 @@
 */
 
 #include "GcodeDispatch.h"
+#include "GcodeSyntax.h"
 #include "libs/FirmwareFileSystem.h"
 
 #include "libs/Kernel.h"
@@ -32,7 +33,7 @@
 #define panel_checksum             CHECKSUM("panel")
 
 // goes in Flash, list of Mxxx codes that are allowed when in Halted state
-static const int allowed_mcodes[]= {2,5,9,30,105,114,115,119,80,81,911,503,106,107}; // get temp, get pos, get endstops etc
+static const int allowed_mcodes[]= {2,5,9,30,105,114,115,119,80,81,911,503,106,107,964}; // get temp, get pos, get endstops etc
 static bool is_allowed_mcode(int m) {
     for (size_t i = 0; i < sizeof(allowed_mcodes)/sizeof(int); ++i) {
         if(allowed_mcodes[i] == m) return true;
@@ -69,6 +70,17 @@ void GcodeDispatch::on_console_line_received(void *line)
 
 try_again:
 
+    const gcode_syntax::Result syntax = gcode_syntax::prepare_dispatch(possible_command, THEKERNEL->is_grbl_mode());
+    if (syntax != gcode_syntax::OK) {
+        THEKERNEL->set_halt_reason(MANUAL);
+        THEKERNEL->call_event(ON_HALT, nullptr);
+        new_message.stream->printf("ERROR: %s\nok\r\n", syntax == gcode_syntax::MALFORMED_COMMENT ?
+            "Malformed G-code comment" : "Decimal G90/G91 modes are unsupported");
+        return;
+    }
+    ltrim(possible_command);
+    if (possible_command.empty()) { new_message.stream->printf("ok\r\n"); return; }
+
     char first_char = possible_command[0];
     unsigned int n;
 
@@ -83,41 +95,6 @@ try_again:
 
     if ( first_char == 'G' || first_char == 'M' || first_char == 'T' || first_char == 'S' || first_char == 'N' || first_char == '#') {
 
-        //Get linenumber
-        if ( first_char == 'N' ) {
-            //Strip line number value from possible_command
-			size_t lnsize = possible_command.find_first_not_of("N0123456789.,- ");
-			if(lnsize != string::npos) {
-				possible_command = possible_command.substr(lnsize);
-			}else{
-				// it is a blank line
-				possible_command.clear();
-			}
-        }
-
-        if ( first_char == 'G'){
-			//check if has G90/G91
-			std::string g90_g91_command;
-			std::string modified_command = possible_command;
-			size_t g90_pos = modified_command.find("G90");
-			size_t g91_pos = modified_command.find("G91");
-			// if we have G90 or G91，then we move G90/G91 to the beginning
-			if (g90_pos != std::string::npos) {
-				g90_g91_command = "G90";
-				modified_command.erase(g90_pos, 3); // delete "G90"
-				possible_command = g90_g91_command + modified_command;
-			} else if (g91_pos != std::string::npos) {
-				g90_g91_command = "G91";
-				modified_command.erase(g91_pos, 3); // delete "G91"
-				possible_command = g90_g91_command + modified_command;
-			}
-		}
-
-        //Remove comments
-        size_t comment = possible_command.find_first_of(";(");
-        if( comment != string::npos ) {
-            possible_command = possible_command.substr(0, comment);
-        }
 
 		bool sent_ok= false; // used for G1 optimization
 		string single_command;
@@ -127,7 +104,10 @@ try_again:
 			// -> G or M are in the line but not always the first char
 			// -> S or T could be in front of or after M
 			first_char = possible_command[0];
-			if (first_char == 'G') {
+			const bool opaque = gcode_syntax::opaque_command(possible_command, THEKERNEL->is_grbl_mode());
+			if (opaque) {
+				cmd_pos = string::npos;
+			} else if (first_char == 'G') {
 				// find next G/M/S/T
 				if (possible_command.find_first_of("S", 2) != string::npos
 						&& possible_command.find_first_of("M", 2) != string::npos) {
@@ -162,6 +142,7 @@ try_again:
 				// Prepare gcode for dispatch
 				// new_message.stream->printf("GCode1: %s!\n", single_command.c_str());
 				Gcode *gcode = new Gcode(single_command, new_message.stream, false, new_message.line);
+                if (opaque) { gcode->has_g = false; gcode->g_has_subcode = false; }
 
 				if ( first_char == '#'){
 					gcode->set_variable_value();
@@ -343,7 +324,7 @@ try_again:
 						{
 							// reconstruct entire command line again
 							string str= single_command.substr(5) + possible_command;
-							while(is_whitespace(str.front())){ str= str.substr(1); } // strip leading whitespace
+							while(!str.empty() && is_whitespace(str.front())){ str= str.substr(1); } // strip leading whitespace
 
 							delete gcode;
 
