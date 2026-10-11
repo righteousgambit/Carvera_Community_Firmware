@@ -173,3 +173,11 @@ parenthesis. Nested or unmatched parentheses in executable G-code halt before
 the block is dispatched. Text and filename commands preserve their payload
 without interpreting its punctuation or G-code words. Integer `G90`/`G91` words apply before motion on the same block;
 decimal `G90.x`/`G91.x` modes are unsupported and halt before dispatch.
+
+## Optional bank signing
+
+Ordinary builds leave `WAVEFORM_ATTESTATION` disabled. Enabling it requires an
+explicit measured image range and changes the boot-memory budget. The signing-
+enabled build exceeds the known CA1 main-heap budget and must not be deployed
+on CA1. Its C1 build and memory checks pass, but machine qualification remains
+required. The default build passes the known C1 and CA1 memory checks.
