@@ -14,6 +14,7 @@
 //#include "Debug.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 
 DWORD get_fattime (void) {
     // return 999;
@@ -84,6 +85,7 @@ FileHandle *FATFileSystem::open(const char* name, int flags) {
     int nlen = snprintf(n, sizeof(n), "%d:/%s", _fsid, name);
     if (nlen < 0 || nlen >= (int)sizeof(n)) {
         FFSDEBUG("open() path too long\n");
+        errno = ENAMETOOLONG;
         return NULL;
     }
 
@@ -109,12 +111,31 @@ FileHandle *FATFileSystem::open(const char* name, int flags) {
     // M576 and other multi-open workloads.
     FIL_t *fh = new FIL_t;
     if (fh == NULL) {
+        errno = ENOMEM;
         return NULL;
     }
     FRESULT res = f_open(fh, n, openmode);
     if(res) {
         FFSDEBUG("f_open('w') failed (%d, %s)\n", res, FR_ERRORS[res]);
         delete fh;
+        // Callers may create a missing file, but must preserve it on I/O errors.
+        switch (res) {
+            case FR_NO_FILE:
+            case FR_NO_PATH: errno = ENOENT; break;
+            case FR_INVALID_NAME: errno = EINVAL; break;
+            case FR_DENIED: errno = EACCES; break;
+            case FR_EXIST: errno = EEXIST; break;
+            case FR_WRITE_PROTECTED: errno = EROFS; break;
+            case FR_NOT_READY:
+            case FR_INVALID_DRIVE:
+            case FR_NOT_ENABLED:
+            case FR_NO_FILESYSTEM: errno = ENODEV; break;
+            case FR_TIMEOUT: errno = ETIMEDOUT; break;
+            case FR_LOCKED: errno = EBUSY; break;
+            case FR_NOT_ENOUGH_CORE: errno = ENOMEM; break;
+            case FR_TOO_MANY_OPEN_FILES: errno = EMFILE; break;
+            default: errno = EIO; break;
+        }
         return NULL;
     }
     if(flags & O_APPEND) {
